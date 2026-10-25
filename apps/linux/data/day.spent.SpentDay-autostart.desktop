@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Spent Day
+Comment=Record screen time in the background
+Exec=spentday --background
+Icon=day.spent.SpentDay
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

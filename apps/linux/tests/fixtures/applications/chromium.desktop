@@ -1,0 +1,4 @@
+[Desktop Entry]
+Type=Application
+Name=Chromium Web Browser
+Exec=chromium %U

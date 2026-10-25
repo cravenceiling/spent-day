@@ -1,0 +1,15 @@
+target/
+.audit/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+build/
+.gradle/
+local.properties
+*.apk
+*.jks
+*.keystore
+*.p12
+node_modules/
+extension/dist/

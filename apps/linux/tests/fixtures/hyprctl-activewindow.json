@@ -1,0 +1,28 @@
+{
+    "address": "0x55d1c2a3b4e0",
+    "mapped": true,
+    "hidden": false,
+    "at": [12, 52],
+    "size": [1896, 1016],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": false,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "firefox",
+    "title": "Spent Day on GitHub — Mozilla Firefox",
+    "initialClass": "firefox",
+    "initialTitle": "Mozilla Firefox",
+    "pid": 4211,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 0,
+    "fullscreenClient": 0,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false
+}

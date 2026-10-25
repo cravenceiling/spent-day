@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Spent Day
+GenericName=Screen Time
+Comment=See how you spend time across all your devices
+Exec=spentday
+Icon=day.spent.SpentDay
+Terminal=false
+Categories=Utility;GTK;
+Keywords=screen time;usage;activity;tracker;wellbeing;
+StartupNotify=true

@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Spent Day",
+  "version": "0.1.0",
+  "description": "Tells the Spent Day app on this computer which site is in front of you, so your screen time shows sites as well as apps.",
+  "permissions": ["tabs", "alarms", "storage"],
+  "incognito": "not_allowed",
+  "host_permissions": ["http://127.0.0.1:7853/*"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "Spent Day",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@spent.day",
+      "strict_min_version": "121.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+[crates.spentday_core.bindings.kotlin]
+android = true
+
+# SpentDayError::Server's `message` field clashes with Throwable.message in Kotlin.
+[crates.spentday_core.bindings.kotlin.rename]
+"SpentDayError.Server.message" = "detail"

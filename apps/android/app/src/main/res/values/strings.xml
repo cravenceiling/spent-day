@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Spent Day</string>
+    <string name="web_service_label">Spent Day website time</string>
+    <string name="web_service_description">Spent Day reads the address bar of Chrome, Firefox and DuckDuckGo to count time per website. It keeps only the site&#8217;s domain, such as youtube.com, and never the full address or the page title. It skips private and incognito tabs, and reads nothing else on screen and nothing in other apps. Domains stay on your devices and are end-to-end encrypted when you sync.</string>
+</resources>

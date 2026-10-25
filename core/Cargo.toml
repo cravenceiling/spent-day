@@ -1,0 +1,42 @@
+[package]
+name = "spentday-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "spentday_core"
+
+[dependencies]
+uniffi = "0.32"
+thiserror = "2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+uuid = { version = "1.28.0", features = ["v4"] }
+ureq = "3.4.2"
+chacha20poly1305 = "0.11.0"
+hkdf = "0.13.0"
+sha2 = "0.11.1"
+rand = "0.10.3"
+base64 = "0.23.1"
+url = "2.5.8"
+hex = "0.4.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dev-dependencies]
+spentday-server = { path = "../server" }
+tempfile = "3.27.0"
+tiny_http = "0.12.0"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "net"] }

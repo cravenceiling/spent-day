@@ -1,0 +1,7 @@
+{
+  "uuid": "spentday@spent.day",
+  "name": "Spent Day Focus",
+  "description": "Tells the Spent Day screen time app which window has focus. GNOME does not share this with apps on Wayland.",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "url": "https://spent.day"
+}

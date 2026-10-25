@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Name[de]=Dateien
+Name[pt_BR]=Arquivos
+Name[pt]=Ficheiros
+Exec=nautilus --new-window %U
+Icon=org.gnome.Nautilus
+
+[Desktop Action new-window]
+Name=New Window

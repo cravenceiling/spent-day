@@ -1,0 +1,12 @@
+{
+  "KPlugin": {
+    "Id": "spentday-focus",
+    "Name": "Spent Day Focus",
+    "Description": "Tells the Spent Day screen time app which window has focus.",
+    "Version": "0.1.0",
+    "License": "MIT"
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js",
+  "KPackageStructure": "KWin/Script"
+}

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=IntelliJ IDEA
+StartupWMClass=jetbrains-idea
+Exec=idea
+Icon=/opt/idea/bin/idea.svg

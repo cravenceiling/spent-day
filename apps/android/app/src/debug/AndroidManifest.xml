@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+            Debug builds only. DUMP is a signature, privileged and development permission. The system,
+            privileged apps, the adb shell, and any app that declares DUMP and was granted it with
+            `adb shell pm grant` can send this broadcast. Each of those needs adb or system access.
+        -->
+        <receiver
+            android:name=".DebugSyncReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>
