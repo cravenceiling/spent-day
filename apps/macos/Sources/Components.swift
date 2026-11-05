@@ -70,31 +70,6 @@ struct UsageBar: View {
     }
 }
 
-struct Card<Content: View>: View {
-    let title: String
-    var trailing: String?
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.headline)
-                Spacer()
-                if let trailing {
-                    Text(trailing).font(.subheadline).foregroundStyle(.secondary)
-                }
-            }
-            content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
-        }
-    }
-}
-
 /// A menu-style row for the menu bar window: highlights on hover like an NSMenu item.
 struct MenuRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

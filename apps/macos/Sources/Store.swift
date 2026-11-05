@@ -3,6 +3,7 @@ import Foundation
 /// The slice of the core the UI reads and writes. `SpentDay` conforms as is;
 /// `DemoStore` stands in for demo data and screenshots.
 protocol UsageStore: AnyObject, Sendable {
+    func day(query: DayQuery) throws -> DayDetail
     func summary(query: SummaryQuery) throws -> Summary
     func devices() throws -> [DeviceInfo]
     func newSyncCode() -> String
@@ -78,11 +79,12 @@ enum Launch {
 
     static var opensSettings: Bool { CommandLine.arguments.contains("--settings") }
 
-    /// `--range lastSevenDays` opens the dashboard on that range.
-    static var initialRange: DayRange {
+    static var initialDay: Date {
         let arguments = CommandLine.arguments
-        guard let flag = arguments.firstIndex(of: "--range"), flag + 1 < arguments.count else { return .today }
-        return DayRange(rawValue: arguments[flag + 1]) ?? .today
+        guard let flag = arguments.firstIndex(of: "--day"), flag + 1 < arguments.count else { return .now }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: arguments[flag + 1]) ?? .now
     }
 
     static var deviceName: String { Host.current().localizedName ?? "Mac" }
@@ -142,6 +144,12 @@ extension Error {
 }
 
 extension Int64 {
+    var accessibleDuration: String {
+        let minutes = Swift.max(0, Int64((Double(self) / 60_000).rounded())), hours = minutes / 60, rest = minutes % 60
+        if hours == 0 { return "\(rest) \(rest == 1 ? "minute" : "minutes")" }
+        return "\(hours) \(hours == 1 ? "hour" : "hours") \(rest) \(rest == 1 ? "minute" : "minutes")"
+    }
+
     /// "45m", "2h 5m", "<1m".
     var durationText: String {
         let minutes = Int((Double(self) / 60_000).rounded())
