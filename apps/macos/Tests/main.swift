@@ -72,6 +72,9 @@ for now in stride(from: 1 * minute, through: 200 * minute, by: Int(minute / 12))
 }
 check(awayAt == 120 * minute, "a display held awake for hours counts 2 h after the last input, then away (got \(awayAt.map { $0 / minute } ?? -1) min)")
 
+try treemapChecks()
+tileColorChecks()
+
 try idleChecks()
 try browserChecks()
 

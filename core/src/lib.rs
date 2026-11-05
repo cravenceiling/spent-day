@@ -4,6 +4,8 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 mod apps;
+mod day;
+pub use day::{DayDetail, DayItem, DayQuery, DeviceDay, ItemKind, Session};
 mod listener;
 mod store;
 mod summary;
@@ -416,6 +418,13 @@ impl SpentDay {
         let spans =
             store.spans_between(query.start_ms, query.end_ms, query.device_id.as_deref())?;
         summary::summarize(&query, &spans, &store.devices()?)
+    }
+
+    pub fn day(&self, query: DayQuery) -> Result<DayDetail, SpentDayError> {
+        self.inner.store().snapshot(|store| {
+            let spans = store.spans_between(query.start_ms, query.end_ms, None)?;
+            Ok(day::detail(&query, &spans, &store.devices()?))
+        })
     }
 
     /// Every device known locally, this one first.

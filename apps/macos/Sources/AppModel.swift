@@ -10,20 +10,22 @@ enum SyncOutcome: Equatable {
 final class AppModel {
     /// `nil` until the database is open.
     private var store: UsageStore?
+    private(set) var isDemo = false
 
-    var range: DayRange = Launch.initialRange { didSet { if range != oldValue { reload() } } }
-    /// `nil` means all devices.
-    var deviceID: String? { didSet { if deviceID != oldValue { reload() } } }
-
-    private(set) var summary: Summary?
+    var day: Date = Calendar.current.startOfDay(for: Launch.initialDay) {
+        didSet { if day != oldValue { detail = nil; usualMs = nil; reload() } }
+    }
+    private(set) var detail: DayDetail?
+    private(set) var usualMs: Int64?
     private(set) var today: Summary?
-    private(set) var devices: [DeviceInfo] = []
+
     private(set) var loadError: String?
 
     private(set) var syncConfig: SyncConfig?
     private(set) var isSyncing = false
     private(set) var lastSync: SyncOutcome?
 
+    private var lastReloadToday = Calendar.current.startOfDay(for: .now)
     private var reloadGeneration = 0
     /// Bumped on every config change, so a sync that started under the old config
     /// doesn't report its result as the new one's.
@@ -34,6 +36,7 @@ final class AppModel {
 
     func start(store: UsageStore) {
         self.store = store
+        isDemo = store is DemoStore
         reload()
         Task { syncConfig = try? await offMain { try store.syncConfig() } }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -50,29 +53,48 @@ final class AppModel {
 
     func reload() {
         guard let store else { return }
-        let selected = range.query(deviceID: deviceID)
-        let todayQuery = DayRange.today.query(deviceID: nil)
+        let now = Date.now
+        let newToday = Calendar.current.startOfDay(for: now)
+        let followedToday = day == lastReloadToday
+        lastReloadToday = newToday
+        if followedToday && day != newToday {
+            day = newToday
+            return
+        }
+        let selected = dayQuery(day)
+        let todayQuery = dayQuery(now)
+        let history = usualQueries(day: day, now: now)
         reloadGeneration += 1
         let generation = reloadGeneration
         Task {
             do {
-                let (summary, today, devices) = try await offMain {
-                    (try store.summary(query: selected), try store.summary(query: todayQuery), try store.devices())
+                let (detail, today, usual) = try await offMain {
+                    let detail = try store.day(query: selected)
+                    let todayDetail: DayDetail
+                    if selected == todayQuery { todayDetail = detail }
+                    else { todayDetail = try store.day(query: todayQuery) }
+                    var today = try store.summary(query: SummaryQuery(startMs: todayQuery.startMs, endMs: todayQuery.endMs,
+                                                                       bucketMs: 3_600_000, deviceId: nil))
+                    today.totalMs = todayDetail.wallMs
+                    let usual = usualTotal(try history.map { try store.day(query: $0) })
+                    return (detail, today, usual)
                 }
-                // A slower, older reload must not overwrite a newer selection.
                 guard generation == self.reloadGeneration else { return }
-                self.summary = summary
+                self.detail = detail
                 self.today = today
-                self.devices = devices
+                self.usualMs = usual
                 self.loadError = nil
             } catch {
+                guard generation == self.reloadGeneration else { return }
                 self.loadError = error.userMessage
             }
         }
     }
 
-    var selectedDeviceName: String {
-        devices.first { $0.id == deviceID }?.name ?? "All Devices"
+    func stepDay(_ offset: Int) {
+        guard let next = Calendar.current.date(byAdding: .day, value: offset, to: day),
+              next <= Calendar.current.startOfDay(for: .now) else { return }
+        day = next
     }
 
     // MARK: Sync

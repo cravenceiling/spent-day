@@ -7,7 +7,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 out="${1:-$here/screenshots}"
 work=""
 trap 'rm -rf "$work"' EXIT
-work="$(mktemp -d)"
+mkdir -p "$here/build"
+work="$(mktemp -d "$here/build/snapshot.XXXXXX")"
 
 source "$here/core.sh"
 build_core "$work/generated"

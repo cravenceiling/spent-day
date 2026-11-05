@@ -4,6 +4,20 @@ A menu bar app on top of the Rust core. `build.sh` builds `build/Spent Day.app`,
 
 It needs a Mac with Apple Silicon and Rust stable. The app runs on macOS 14 or later. Building needs Xcode 16 or later, or just its Command Line Tools, for Swift 6, and those need macOS 14.5 or later. `verify.sh` also needs jq. The scripts build for arm64 only, so Intel Macs aren't supported yet.
 
+## Day view
+
+The dashboard shows one local calendar day. Previous and next controls step days; Command-Left and Command-Right do the same. Next stops at today. The total counts time on overlapping screens once. Device groups show their separate totals.
+
+Tiles show apps and sites without icons. Hover for sessions, click a device name to fill the map with that device, or click a tile to see its sessions in time order. Tab and arrow keys move focus, Return opens a tile, and Escape goes back. Details shows overlapping time, the longest stretch, time after 23:00, and every app and site per device. Items under 0.3% of the day share an Other tile.
+
+The weekday comparison uses the previous four matching weekdays that have data. It appears only when at least two have data. For today, each historical sample ends at the current local time of day. Light and dark appearances follow the system. Tile colours come from local app icons or stable hashes, with black or white labels that keep at least 4.5:1 contrast when dimmed. Sites never fetch favicons.
+
+Run `apps/macos/test.sh` for collector, day bounds, layout and colour checks. Run `apps/macos/snapshot.sh` for the fixed 28 October 2026 demo day in dark and light appearances, Xcode hover, device and session drills, a 720 by 560 window, an empty day, and the menu panel. Snapshot hover and drill states are injected. The snapshot comparison uses the reference day's supplied usual Wednesday total; live comparisons read historical days from the core. Demo sessions repeat on the requested local day, and demo colours stay fixed across machines.
+
+![Day view](screenshots/dashboard-day-demo.png)
+
+A dev build can open a date with `--dashboard --day 2026-10-28`.
+
 ## Install
 
 From the repository root:
@@ -57,7 +71,7 @@ One AppleScript call resolves the front window once, by id, checks whether it is
 |---|---|
 | Chrome, Brave, Helium, Edge, Vivaldi, Opera | AppleScript `mode of w is "incognito"`, where `w` is the front window. The script returns nothing for it. Checked against the Chrome, Brave and Helium scripting dictionaries, and live in Chrome: an incognito window returns `{}`, a normal one its URL. Edge, Vivaldi and Opera are assumed to share Chrome's. |
 | Arc | AppleScript `incognito of w`. Not checked against a real install. |
-| Safari | It can't. Safari's scripting dictionary has no private-window property. So Safari sites are off by default: Spent Day never asks Safari for its page, calls `web_cleared`, and records Safari time with no site, which the dashboard shows as Other. Settings > General > Record Safari sites turns them on, and then private browsing in Safari is recorded like any other window. |
+| Safari | It can't. Safari's scripting dictionary has no private-window property. So Safari sites are off by default: Spent Day never asks Safari for its page, calls `web_cleared`, and records Safari time with no site, which the dashboard shows as Safari. Settings > General > Record Safari sites turns them on, and then private browsing in Safari is recorded like any other window. |
 | Firefox | The extension sends `"url": null` for a private window. |
 
 Other browsers aren't scripted, so their time goes to whatever the extension reports, or to no site.

@@ -74,6 +74,16 @@ The same app has different ids per platform (`com.google.Chrome`, `google-chrome
 
 The UI passes local-midnight boundaries, so the core never deals with time zones. Time on two devices at once counts twice. That is deliberate: "screen time" is per screen.
 
+## Day
+
+`day(DayQuery { start_ms, end_ms })` reads spans and device metadata from one database snapshot. It clips spans to the requested interval and skips zero-length spans. No migration is needed.
+
+Each device has ranked app and site items. A browser span with a domain belongs to that site, merged across browsers on that device. A browser span without a domain belongs to the browser app. The browser's full time never appears alongside its sites. Apps use the same canonical keys and ranked platform ids as `summary()`.
+
+Consecutive spans of the same item on one device merge into a session when their gap is at most 60 seconds. The session includes that short gap. An intervening item prevents merging. Item and device totals come from those sessions. `device_ms` sums device totals. `wall_ms` measures the union of all sessions across all devices, so the day view's headline counts overlapping time once. Details shows `device_ms - wall_ms` as time on two screens at once.
+
+The macOS day view passes local calendar midnight boundaries, including 23-hour and 25-hour days. Its weekday comparison averages the previous four matching weekdays with data and appears only with at least two samples. Today compares history only up to the current local time of day. The menu bar uses the same union total for today's headline. `summary()` keeps its existing per-screen counting rule.
+
 ## Sync
 
 - One random 32-byte **sync secret** per account, shown to the user as a sync code. Joining a device means pasting the code.
