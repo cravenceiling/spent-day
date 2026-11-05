@@ -31,7 +31,7 @@ Spent Day records which app, and which website, is in front of you on your Mac, 
 
 ## Get started
 
-There are no releases yet, so you build from source. Every app needs [Rust](https://rustup.rs) stable. There's no iOS app, because Apple doesn't let apps export Screen Time data, and no Windows app yet.
+Building from source needs [Rust](https://rustup.rs) stable. There's no iOS app, because Apple doesn't let apps export Screen Time data, and no Windows app yet.
 
 | Platform | You need | Guide |
 |---|---|---|
@@ -55,6 +55,17 @@ apps/linux/install.sh
 ```
 
 To sync, run [`spentday-server`](server/README.md) behind HTTPS, create a sync code on one device, and join with it on the others.
+
+## Releases
+
+[Releases](https://github.com/cravenceiling/spent-day/releases) provide two downloads:
+
+- `SpentDay-<version>-arm64.dmg` for Apple Silicon Macs. Open it and drag Spent Day to Applications. The app is not notarized. After the first blocked launch, open System Settings > Privacy & Security > Open Anyway, then confirm the launch. Repeat this after every download, including updates.
+- `spentday-<version>-1-x86_64.pkg.tar.zst` for Arch Linux. Install with `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst`. Run `systemctl --user enable --now spentday.service` as your desktop user to start Spent Day now and at login. Alternatively, run `mkdir -p ~/.config/autostart` and copy `/usr/share/applications/day.spent.SpentDay-autostart.desktop` to `~/.config/autostart/day.spent.SpentDay.desktop`, then run `spentday --background` to start it now. On GNOME, log out and back in, then run `gnome-extensions enable spentday@spent.day`. On KDE, enable Spent Day Focus in System Settings > Window Management > KWin Scripts, then log out and back in. After updates, log out and back in to reload either helper.
+
+To cut a release, set the same version in `apps/macos/Info.plist`, `apps/linux/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds both downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload the two downloads as workflow artifacts without publishing a release.
+
+Set up the [release signing secrets](apps/macos/README.md#release-signing) once so macOS Automation grants survive updates.
 
 ## Docs
 

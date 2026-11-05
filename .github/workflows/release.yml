@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'packaging/**'
+      - 'scripts/make-release-cert.sh'
+      - 'apps/macos/build.sh'
+      - 'apps/macos/core.sh'
+      - 'apps/macos/publish.sh'
+      - 'apps/macos/Info.plist'
+      - 'apps/macos/SpentDay.entitlements'
+      - 'apps/macos/Sources/**'
+      - 'apps/linux/install.sh'
+      - 'apps/linux/data/**'
+      - 'apps/linux/gnome-extension/**'
+      - 'apps/linux/kwin-script/**'
+      - 'apps/linux/Cargo.toml'
+      - 'apps/linux/Cargo.lock'
+      - 'apps/linux/src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'core/**'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check versions
+        id: version
+        shell: python
+        run: |
+          import os
+          import plistlib
+          import re
+          import tomllib
+          from pathlib import Path
+
+          with open("apps/macos/Info.plist", "rb") as file:
+              macos = plistlib.load(file)["CFBundleShortVersionString"]
+          with open("apps/linux/Cargo.toml", "rb") as file:
+              linux = tomllib.load(file)["package"]["version"]
+          arch = re.search(r"^pkgver=(.+)$", Path("packaging/arch/PKGBUILD").read_text(), re.M)[1]
+          if not macos == linux == arch:
+              raise SystemExit(f"Version mismatch: macOS={macos}, Linux={linux}, PKGBUILD={arch}")
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and os.environ["GITHUB_REF_NAME"] != f"v{macos}":
+              raise SystemExit(f"Tag {os.environ['GITHUB_REF_NAME']} must be v{macos}, matching Info.plist and apps/linux/Cargo.toml")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as file:
+              file.write(f"version={macos}\n")
+
+  macos:
+    needs: version
+    runs-on: macos-15
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: macos-cargo-
+      - name: Use ad-hoc signing for pull requests
+        if: github.event_name == 'pull_request'
+        run: |
+          echo '::notice::Pull request build: signing ad hoc. Automation grants will reset after updates.'
+          echo 'SPENTDAY_SIGN_IDENTITY=-' >> "$GITHUB_ENV"
+      - name: Import release identity
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$MACOS_SIGN_P12" ]; then
+            echo "::warning::MACOS_SIGN_P12 is absent. Signing ad hoc; Automation grants will reset after updates."
+            echo 'SPENTDAY_SIGN_IDENTITY=-' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/spentday-release.keychain-db"
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          printf '%s' "$MACOS_SIGN_P12" | base64 --decode > "$RUNNER_TEMP/spentday-release.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/spentday-release.p12" -k "$keychain" \
+            -P "$MACOS_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          /usr/bin/openssl pkcs12 -in "$RUNNER_TEMP/spentday-release.p12" \
+            -passin env:MACOS_SIGN_P12_PASSWORD -clcerts -nokeys -out "$RUNNER_TEMP/spentday-release.pem"
+          # codesign needs an explicit trust anchor for a self-signed identity.
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign "$RUNNER_TEMP/spentday-release.pem"
+          security list-keychains -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep '"Spent Day Release"'
+          echo 'SPENTDAY_SIGN_IDENTITY=Spent Day Release' >> "$GITHUB_ENV"
+      - name: Build app and disk image
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          rustup target add aarch64-apple-darwin
+          apps/macos/build.sh
+          mkdir -p "$RUNNER_TEMP/dmg" dist
+          ditto 'apps/macos/build/Spent Day.app' "$RUNNER_TEMP/dmg/Spent Day.app"
+          ln -s /Applications "$RUNNER_TEMP/dmg/Applications"
+          for attempt in 1 2 3; do
+            if hdiutil create -volname 'Spent Day' -srcfolder "$RUNNER_TEMP/dmg" \
+              -format UDZO -ov "dist/SpentDay-$VERSION-arm64.dmg"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "::notice::Disk image creation failed; retrying in 5 seconds."
+            sleep 5
+          done
+      - name: Remove release identity
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/spentday-release.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/spentday-release.keychain-db"
+          fi
+          if [ -f "$RUNNER_TEMP/spentday-release.pem" ]; then
+            sudo security remove-trusted-cert -d "$RUNNER_TEMP/spentday-release.pem" || true
+          fi
+          rm -f "$RUNNER_TEMP/spentday-release.p12" "$RUNNER_TEMP/spentday-release.pem"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-arm64
+          path: dist/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+  arch:
+    needs: version
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    permissions:
+      contents: read
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed base-devel git rust gtk4 libadwaita
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /home/builder/.cargo/registry
+            /home/builder/.cargo/git
+          key: arch-cargo-${{ hashFiles('apps/linux/Cargo.lock') }}
+          restore-keys: arch-cargo-
+      - name: Build package as an unprivileged user
+        shell: bash
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" /home/builder
+          cd packaging/arch
+          runuser -u builder -- makepkg --noconfirm
+          cd ../..
+          pacman -Qip packaging/arch/*.pkg.tar.zst
+          tar -tf packaging/arch/*.pkg.tar.zst
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arch-x86_64
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, arch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/*.dmg dist/*.pkg.tar.zst --verify-tag --title "$TAG" --generate-notes
