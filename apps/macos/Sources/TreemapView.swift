@@ -111,7 +111,7 @@ struct TreemapView: View {
         }
         .buttonStyle(.plain).focusable().focused($focused, equals: cell.id)
         .accessibilityLabel("\(cell.item.name), \(cell.totalMs.accessibleDuration)\(cell.session.map { ", \(clock($0.startMs, dayEnd: detail.endMs)) to \(clock($0.endMs, dayEnd: detail.endMs))" } ?? "")")
-        .accessibilityHint(cell.session == nil ? "Press Return to open sessions" : "Session")
+        .accessibilityHint(cell.session != nil ? "Session" : cell.hidden.isEmpty ? "Opens sessions" : "Shows hidden items")
         .onKeyPress(.return) { open(cell); return .handled }
         .onHover { inside in hover(cell.id, inside: inside) }
         .frame(width: max(0, rect.width), height: max(0, rect.height))

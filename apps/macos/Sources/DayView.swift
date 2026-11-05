@@ -129,7 +129,7 @@ struct DayView: View {
             let own = item?.sessions ?? device.items.flatMap(\.sessions)
             let from = own.map(\.startMs).min() ?? first, to = own.map(\.endMs).max() ?? last
             if let item { return "\(item.name) on \(device.device.name), \(item.sessions.count) \(item.sessions.count == 1 ? "session" : "sessions"), \(clock(from, dayEnd: detail.endMs)) to \(clock(to, dayEnd: detail.endMs))." }
-            return "\(device.device.name), \(device.items.count) apps and sites, \(clock(from, dayEnd: detail.endMs)) to \(clock(to, dayEnd: detail.endMs))."
+            return "\(device.device.name), \(device.items.count) \(device.items.count == 1 ? "app or site" : "apps and sites"), \(clock(from, dayEnd: detail.endMs)) to \(clock(to, dayEnd: detail.endMs))."
         }
         var comparison = ""
         if let usualMs {
