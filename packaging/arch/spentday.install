@@ -1,0 +1,21 @@
+post_install() {
+  cat <<'MESSAGE'
+To start Spent Day now and at login, run as your desktop user:
+  systemctl --user enable --now spentday.service
+Or use a desktop autostart entry instead:
+  mkdir -p ~/.config/autostart
+  cp /usr/share/applications/day.spent.SpentDay-autostart.desktop ~/.config/autostart/day.spent.SpentDay.desktop
+Run 'spentday --background' to start it now when using the autostart entry.
+GNOME: log out and back in, then run: gnome-extensions enable spentday@spent.day
+KDE: enable Spent Day Focus in System Settings > Window Management > KWin Scripts,
+or run: kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true
+Then log out and back in to load the KWin script.
+After updating, log out and back in to reload the GNOME extension or KWin script.
+Sway: add to your config: exec /usr/bin/spentday --background
+Hyprland: add to hyprland.conf: exec-once = /usr/bin/spentday --background
+MESSAGE
+}
+
+post_upgrade() {
+  post_install
+}
