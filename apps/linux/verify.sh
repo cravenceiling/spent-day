@@ -11,7 +11,7 @@ root="$(cd "$here/../.." && pwd)"
 
 if [ ! -e /.spentday-dev ]; then
   docker build -q -t spentday-linux-dev -f "$here/Dockerfile.dev" "$here" >/dev/null
-  exec docker run --rm --hostname spentday-linux -v "$root":/src -v spentday-cargo:/opt/cargo/registry -v spentday-target:/target \
+  exec docker run --rm --name "spentday-verify-$(date +%s)-$$" --hostname spentday-linux -v "$root":/src -v spentday-cargo:/opt/cargo/registry -v spentday-target:/target \
     -e CARGO_TARGET_DIR=/target ${SPENTDAY_DOCKER_ARGS:-} spentday-linux-dev /src/apps/linux/verify.sh "$@"
 fi
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
@@ -38,16 +38,18 @@ step "build"
 ls -l "$spentday" "$cli"
 [ "${1:-}" = unit ] && exit 0
 
-Xvfb :99 -screen 0 1100x1000x24 >/dev/null 2>&1 &
+Xvfb :99 -screen 0 1280x1000x24 >/dev/null 2>&1 &
+xvfb_pid=$!
 export DISPLAY=:99
 sleep 1
 openbox >/dev/null 2>&1 &
+openbox_pid=$!
 sleep 1
 mkdir -p "$shots"
 
 step "integration tests against the session bus and the X server"
 # They share one session bus, so one test's players must not show up in another's checks.
-(cd "$here" && cargo test --quiet -- --ignored --test-threads=1) || fail "integration tests"
+(cd "$here" && GTK_A11Y=test cargo test --quiet -- --ignored --test-threads=1) || fail "integration tests"
 
 # Starts `spentday --background` on database $1 and waits until it tracks.
 start_spentday() {
@@ -94,13 +96,8 @@ not_on_disk() {
   done
 }
 
-step "demo window screenshot"
-"$spentday" --demo >/tmp/demo.log 2>&1 &
-demo_pid=$!
-xdotool search --sync --name '^Spent Day' >/dev/null
-sleep 2
-import -window root "$shots/demo-today.png"
-kill "$demo_pid"; wait "$demo_pid" 2>/dev/null || true
+step "demo treemap screenshots"
+"$here/snapshot.sh"
 
 step "a database that will not open shows a dialog, then Spent Day exits"
 printf 'not a database' > /tmp/bad.db
@@ -116,14 +113,18 @@ cat /tmp/bad.log
 step "X11: focus switches between two xterms"
 start_spentday /tmp/e2e.db
 xterm -class SpentDayA -T "spentday window A" -e sleep 600 &
+xterm_a_pid=$!
 xterm -class SpentDayB -T "spentday window B" -e sleep 600 &
+xterm_b_pid=$!
 xdotool search --sync --class SpentDayA >/dev/null
 xdotool search --sync --class SpentDayB >/dev/null
 for _ in 1 2 3; do
   xdotool search --class SpentDayA windowactivate --sync; sleep 6
   xdotool search --class SpentDayB windowactivate --sync; sleep 6
 done
-pkill -f "xterm -class SpentDay" || true
+kill "$xterm_a_pid" "$xterm_b_pid"
+wait "$xterm_a_pid" 2>/dev/null || true
+wait "$xterm_b_pid" 2>/dev/null || true
 sleep 2
 check_spans /tmp/e2e.db \
   'ids[-6:] == ["SpentDayA", "SpentDayB"] * 3 and all(4.5 <= (s["end_ms"] - s["start_ms"]) / 1000 <= 8 for s in spans[-6:-1])' \
@@ -135,6 +136,7 @@ printf '<title>Alpha page</title><h1>Alpha</h1>' > /tmp/site/alpha.html
 printf '<title>Beta page</title><h1>Beta</h1>' > /tmp/site/beta.html
 printf '<title>Secret page</title><h1>Secret</h1>' > /tmp/site/secret.html
 (cd /tmp/site && exec python3 -m http.server 8000 >/dev/null 2>&1) &
+site_pid=$!
 
 # Starts Chromium with the extension on the URL $2, with extra flags $1.
 start_chromium() {
@@ -206,15 +208,14 @@ sleep 3
 import -window root -crop 1100x260+0+0 +repage "$shots/extension-popup.png"
 stop_chromium
 
-step "real window screenshot"
-"$spentday" >/tmp/window.log 2>&1 &
-xdotool search --sync --onlyvisible --name '^Spent Day$' >/dev/null
-sleep 2
-# Expands the Chromium row, the first app, to show its sites and its time with no site.
-eval "$(xdotool getwindowgeometry --shell "$(xdotool search --onlyvisible --name '^Spent Day$' | head -1)")"
-xdotool mousemove $((X + 683)) $((Y + 488)) click 1
-sleep 1
-import -window root "$shots/linux-today.png"
+step "real dashboard smoke screenshot"
+SPENTDAY_DB=/tmp/e2e.db "$spentday" >/tmp/real-window.log 2>&1 &
+real_pid=$!
+wait "$real_pid"
+real_window=$(timeout 15 xdotool search --sync --onlyvisible --all --pid "$spentday_pid" --name '^Spent Day$' | head -1)
+sleep 3
+import -window "$real_window" "$shots/dashboard-real.png"
+cat /tmp/real-window.log
 stop_spentday
 
 step "X11: idle past the threshold ends the span at the last input"
@@ -223,6 +224,7 @@ export SPENTDAY_AWAY_AFTER_SECS=8
 start_spentday /tmp/away.db
 unset SPENTDAY_AWAY_AFTER_SECS
 xterm -class SpentDayIdle -T "spentday idle" -e sleep 600 &
+xterm_idle_pid=$!
 xdotool search --sync --class SpentDayIdle windowactivate --sync >/dev/null
 sleep 3
 xdotool mousemove 300 300
@@ -232,7 +234,8 @@ xdotool mousemove 320 320
 back=$(date +%s%3N)
 sleep 6
 stop_spentday
-pkill -f "xterm -class SpentDayIdle" || true
+kill "$xterm_idle_pid"
+wait "$xterm_idle_pid" 2>/dev/null || true
 check_spans /tmp/away.db \
   "(lambda idle: len(idle) >= 2 and abs(idle[0]['end_ms'] - $input) <= 1500 and $back <= idle[-1]['start_ms'] <= $back + 2000)([s for s in spans if s['app_id'] == 'SpentDayIdle' and s['end_ms'] > s['start_ms']])" \
   || fail "away spans"
@@ -420,4 +423,5 @@ done
 refuse_prefix "a relative path" "relative/prefix" "PREFIX must be an absolute path"
 [ ! -e "$here/relative" ] || fail "install.sh wrote to a relative prefix"
 
+kill "$site_pid" "$openbox_pid" "$xvfb_pid" 2>/dev/null || true
 step "all checks passed"

@@ -1,13 +1,15 @@
 mod app;
 mod collector;
+mod colors;
+mod day;
 mod dbus;
 mod demo;
 mod desktop;
 mod format;
 mod idle;
+mod layout;
 mod media;
 mod paths;
-mod range;
 mod session;
 mod store;
 mod tracker;

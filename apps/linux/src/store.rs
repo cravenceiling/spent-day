@@ -1,11 +1,10 @@
 //! What the window reads. The core implements it, and `--demo` swaps in sample data.
 
 use crate::demo::Demo;
-use spentday_core::{DeviceInfo, SpentDay, SpentDayError, Summary, SummaryQuery, SyncConfig, SyncReport};
+use spentday_core::{DayDetail, DayQuery, SpentDay, SpentDayError, SyncConfig, SyncReport};
 
 pub trait Store: Send + Sync {
-    fn summary(&self, query: SummaryQuery) -> Result<Summary, SpentDayError>;
-    fn devices(&self) -> Result<Vec<DeviceInfo>, SpentDayError>;
+    fn day(&self, query: DayQuery) -> Result<DayDetail, SpentDayError>;
     fn new_sync_code(&self) -> String;
     fn sync_config(&self) -> Result<Option<SyncConfig>, SpentDayError>;
     fn set_sync_config(&self, config: Option<SyncConfig>) -> Result<(), SpentDayError>;
@@ -13,11 +12,8 @@ pub trait Store: Send + Sync {
 }
 
 impl Store for SpentDay {
-    fn summary(&self, query: SummaryQuery) -> Result<Summary, SpentDayError> {
-        SpentDay::summary(self, query)
-    }
-    fn devices(&self) -> Result<Vec<DeviceInfo>, SpentDayError> {
-        SpentDay::devices(self)
+    fn day(&self, query: DayQuery) -> Result<DayDetail, SpentDayError> {
+        SpentDay::day(self, query)
     }
     fn new_sync_code(&self) -> String {
         SpentDay::new_sync_code(self)
@@ -34,11 +30,8 @@ impl Store for SpentDay {
 }
 
 impl Store for Demo {
-    fn summary(&self, query: SummaryQuery) -> Result<Summary, SpentDayError> {
-        Ok(Demo::summary(self, query))
-    }
-    fn devices(&self) -> Result<Vec<DeviceInfo>, SpentDayError> {
-        Ok(self.devices.clone())
+    fn day(&self, query: DayQuery) -> Result<DayDetail, SpentDayError> {
+        Ok(Demo::day(self, query))
     }
     fn new_sync_code(&self) -> String {
         "7KQ2-M3XP-R2D9-WF4H-B8TN-C6JV-Q1ZE-HY5G-4MRA-T0VD-9XKP-E3NW-J7FB-2QHS".into()
@@ -55,6 +48,11 @@ impl Store for Demo {
         if self.sync.lock().unwrap().is_none() {
             return Err(SpentDayError::SyncNotConfigured);
         }
-        Ok(SyncReport { pushed_spans: 18, pulled_spans: 342, skipped_batches: 0, finished_at_ms: crate::tracker::now_ms() })
+        Ok(SyncReport {
+            pushed_spans: 18,
+            pulled_spans: 342,
+            skipped_batches: 0,
+            finished_at_ms: crate::tracker::now_ms(),
+        })
     }
 }
