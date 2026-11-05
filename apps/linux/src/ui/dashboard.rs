@@ -25,6 +25,7 @@ pub struct Dashboard {
     total: gtk::Label,
     sentence: gtk::Label,
     crumbs: gtk::Box,
+    crumbs_state: RefCell<(Drill, Vec<String>)>,
     details: gtk::Expander,
     details_panel: gtk::ScrolledWindow,
     detail_rows: gtk::Box,
@@ -195,6 +196,7 @@ impl Dashboard {
             total,
             sentence,
             crumbs,
+            crumbs_state: RefCell::new((Drill::Day, vec![])),
             details,
             details_panel: scroller,
             detail_rows,
@@ -438,32 +440,43 @@ impl Dashboard {
             self.render(animate);
             return;
         }
-        while let Some(child) = self.crumbs.first_child() {
-            self.crumbs.remove(&child);
-        }
         self.crumbs.set_visible(device.is_some());
-        if let Some(device) = device {
-            let back = gtk::Button::with_label("All devices");
-            back.add_css_class("crumb");
-            back.connect_clicked(glib::clone!(
-                #[weak(rename_to=this)]
-                self,
-                move |_| this.navigate(Drill::Day)
-            ));
-            self.crumbs.append(&back);
-            self.crumbs.append(&gtk::Label::new(Some("›")));
-            let back = gtk::Button::with_label(&device.device.name);
-            back.add_css_class("crumb");
-            let id = device.device.id.clone();
-            back.connect_clicked(glib::clone!(
-                #[weak(rename_to=this)]
-                self,
-                move |_| this.navigate(Drill::Device(id.clone()))
-            ));
-            self.crumbs.append(&back);
-            if let Some(item) = item {
+        let crumbs_state = (
+            drill.clone(),
+            device
+                .map(|d| d.device.name.clone())
+                .into_iter()
+                .chain(item.map(|i| i.name.clone()))
+                .collect(),
+        );
+        if *self.crumbs_state.borrow() != crumbs_state {
+            *self.crumbs_state.borrow_mut() = crumbs_state;
+            while let Some(child) = self.crumbs.first_child() {
+                self.crumbs.remove(&child);
+            }
+            if let Some(device) = device {
+                let back = gtk::Button::with_label("All devices");
+                back.add_css_class("crumb");
+                back.connect_clicked(glib::clone!(
+                    #[weak(rename_to=this)]
+                    self,
+                    move |_| this.navigate(Drill::Day)
+                ));
+                self.crumbs.append(&back);
                 self.crumbs.append(&gtk::Label::new(Some("›")));
-                self.crumbs.append(&gtk::Label::new(Some(&item.name)));
+                let back = gtk::Button::with_label(&device.device.name);
+                back.add_css_class("crumb");
+                let id = device.device.id.clone();
+                back.connect_clicked(glib::clone!(
+                    #[weak(rename_to=this)]
+                    self,
+                    move |_| this.navigate(Drill::Device(id.clone()))
+                ));
+                self.crumbs.append(&back);
+                if let Some(item) = item {
+                    self.crumbs.append(&gtk::Label::new(Some("›")));
+                    self.crumbs.append(&gtk::Label::new(Some(&item.name)));
+                }
             }
         }
         let total = item.map_or_else(

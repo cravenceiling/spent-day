@@ -255,3 +255,121 @@ fn notify_sync(state: &AppState) {
         callback();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs an X server; verify.sh runs it"]
+    fn gtk_reload_keeps_focused_crumb() {
+        gtk::test_synced(|| {
+            adw::init().unwrap();
+            let app = adw::Application::builder()
+                .application_id("day.spent.SpentDay.CrumbTest")
+                .flags(gio::ApplicationFlags::NON_UNIQUE)
+                .build();
+            app.register(None::<&gio::Cancellable>).unwrap();
+            let folder = tempfile::tempdir().unwrap();
+            let store = SpentDay::open(
+                folder.path().join("crumbs.db").to_str().unwrap().into(),
+                "Device".into(),
+                Platform::Linux,
+            )
+            .unwrap();
+            let start = glib::DateTime::from_local(2026, 10, 28, 8, 0, 0.)
+                .unwrap()
+                .to_unix()
+                * 1000;
+            let activity = spentday_core::Activity {
+                app_id: "editor".into(),
+                app_name: "Editor".into(),
+                web: None,
+            };
+            store
+                .record_interval(start, start + 60_000, activity.clone())
+                .unwrap();
+            let state = Rc::new(AppState {
+                store: store.clone(),
+                demo: true,
+                sync: RefCell::default(),
+                on_sync_change: RefCell::default(),
+                dashboard: RefCell::default(),
+                tracker: RefCell::default(),
+                _hold: None,
+            });
+            let dashboard = Dashboard::new(&app, state);
+            dashboard.window.present();
+            let settle = || {
+                let main = glib::MainLoop::new(None, false);
+                glib::timeout_add_local_once(std::time::Duration::from_millis(350), {
+                    let main = main.clone();
+                    move || main.quit()
+                });
+                main.run();
+            };
+            let buttons = || {
+                let mut pending = vec![dashboard.window.clone().upcast::<gtk::Widget>()];
+                let mut buttons = Vec::new();
+                while let Some(widget) = pending.pop() {
+                    if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+                        buttons.push(button.clone());
+                    }
+                    let mut child = widget.first_child();
+                    while let Some(widget) = child {
+                        child = widget.next_sibling();
+                        pending.push(widget);
+                    }
+                }
+                buttons
+            };
+            settle();
+            buttons()
+                .into_iter()
+                .find(|b| b.has_css_class("map-group"))
+                .unwrap()
+                .emit_clicked();
+            settle();
+            let crumb = buttons()
+                .into_iter()
+                .find(|b| b.label().as_deref() == Some("All devices"))
+                .unwrap();
+            crumb.grab_focus();
+            assert!(crumb.has_focus());
+            store
+                .record_interval(start, start + 120_000, activity)
+                .unwrap();
+            dashboard.refresh();
+            settle();
+            assert!(crumb.has_focus());
+            assert!(buttons().contains(&crumb));
+            let tile = buttons()
+                .into_iter()
+                .find(|b| b.has_css_class("map-tile"))
+                .unwrap();
+            let mismatch: Option<glib::GString> = unsafe {
+                glib::translate::from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
+                    tile.upcast_ref::<gtk::Accessible>().as_ptr(),
+                    gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+                    c"Editor, 2 minutes".as_ptr(),
+                ))
+            };
+            assert_eq!(mismatch, None);
+            SpentDay::open(
+                folder.path().join("crumbs.db").to_str().unwrap().into(),
+                "Renamed device".into(),
+                Platform::Linux,
+            )
+            .unwrap();
+            dashboard.refresh();
+            settle();
+            assert!(crumb.parent().is_none());
+            assert!(
+                buttons()
+                    .iter()
+                    .any(|b| b.label().as_deref() == Some("Renamed device"))
+            );
+            dashboard.window.destroy();
+        });
+    }
+}

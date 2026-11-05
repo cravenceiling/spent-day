@@ -100,7 +100,7 @@ pub fn slice(values: &[f64], rect: Rect) -> Vec<Rect> {
         .collect()
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct MapItem {
     pub id: String,
     pub device_id: String,

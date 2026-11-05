@@ -43,6 +43,8 @@ mod imp {
         pub(super) hover_epoch: Cell<u64>,
         pub(super) focus_pending: Cell<bool>,
         pub(super) refresh_popover: Cell<bool>,
+        pub(super) pointer: Cell<Option<(f64, f64)>>,
+        pub(super) popover_anchor: Cell<Option<gdk::Rectangle>>,
     }
     #[glib::object_subclass]
     impl ObjectSubclass for Treemap {
@@ -118,12 +120,9 @@ mod imp {
             }
             if let Some(pop) = self.popover.borrow().as_ref() {
                 if let Some(button) = pop.parent() {
-                    pop.set_pointing_to(Some(&gdk::Rectangle::new(
-                        0,
-                        0,
-                        button.width(),
-                        button.height(),
-                    )));
+                    pop.set_pointing_to(Some(&self.popover_anchor.get().unwrap_or_else(|| {
+                        gdk::Rectangle::new(0, 0, button.width(), button.height())
+                    })));
                 }
                 pop.present();
             }
@@ -234,7 +233,6 @@ impl Treemap {
     pub fn update(&self, detail: DayDetail, colors: HashMap<String, Rgb>) {
         *self.imp().detail.borrow_mut() = Some(detail);
         *self.imp().colors.borrow_mut() = colors;
-        self.imp().refresh_popover.set(true);
         self.queue_allocate();
         self.queue_tiles();
     }
@@ -243,6 +241,23 @@ impl Treemap {
     }
     fn sync_buttons(&self, detail: &DayDetail, groups: &Groups, tiles: &Tiles) {
         let map = self;
+        let stale_hover = map
+            .imp()
+            .hovered
+            .borrow()
+            .as_ref()
+            .is_some_and(|cell| !tiles.iter().any(|(current, _)| current.id == cell.id));
+        if stale_hover {
+            map.clear_hover();
+        }
+        map.imp().children.borrow_mut().retain(|child| {
+            let current = groups.iter().any(|(id, _)| *id == child.id)
+                || tiles.iter().any(|(cell, _)| cell.id == child.id);
+            if !current {
+                child.button.unparent();
+            }
+            current
+        });
         for (id, _) in groups {
             let device = detail.devices.iter().find(|d| d.device.id == *id).unwrap();
             let existing = map
@@ -261,6 +276,7 @@ impl Treemap {
                 .unwrap_or_else(|| {
                     let label = gtk::Label::builder()
                         .xalign(0.)
+                        .ellipsize(pango::EllipsizeMode::End)
                         .valign(gtk::Align::Start)
                         .build();
                     button.set_child(Some(&label));
@@ -377,7 +393,11 @@ impl Treemap {
                     source(cr, fill, 1.);
                     rounded(cr, 0., 0., w as f64, h as f64, 10.);
                     let _ = cr.fill();
-                    if area.parent().is_some_and(|button| button.has_focus()) {
+                    if area.parent().is_some_and(|button| {
+                        button
+                            .state_flags()
+                            .contains(gtk::StateFlags::FOCUS_VISIBLE)
+                    }) {
                         source(cr, ink, 1.);
                         cr.set_line_width(2.);
                         rounded(
@@ -448,7 +468,7 @@ impl Treemap {
                 move |button| {
                     let cell = cell.borrow().clone();
                     if !cell.hidden.is_empty() {
-                        map.enter(button, &cell, true);
+                        map.enter(button, &cell, None);
                     } else if cell.session.is_none() {
                         map.open(Drill::Item(cell.device_id.clone(), cell.item.key.clone()));
                     }
@@ -462,8 +482,8 @@ impl Treemap {
                 button,
                 #[strong]
                 cell,
-                move |_, _, _| {
-                    map.enter(&button, &cell.borrow(), false);
+                move |_, x, y| {
+                    map.enter(&button, &cell.borrow(), Some((x, y)));
                 }
             ));
             motion.connect_leave(glib::clone!(
@@ -481,6 +501,9 @@ impl Treemap {
                 .iter()
                 .find(|(c, r)| c.id == id && r.w > 0. && r.h > 0.)
             {
+                if map.imp().hovered.borrow().as_ref() != Some(cell) {
+                    map.imp().refresh_popover.set(true);
+                }
                 *map.imp().hovered.borrow_mut() = Some(cell.clone());
                 if let Some(hover) = map.imp().hover.borrow().as_ref() {
                     hover(Some(cell.clone()));
@@ -492,7 +515,7 @@ impl Treemap {
     }
     fn add_button(&self, button: gtk::Button, id: String, item: Option<Rc<RefCell<MapItem>>>) {
         button.set_parent(self);
-        button.connect_has_focus_notify(|button| {
+        button.connect_state_flags_changed(|button, _| {
             if let Some(area) = button.child() {
                 area.queue_draw();
             }
@@ -561,6 +584,8 @@ impl Treemap {
     pub fn clear_hover(&self) {
         self.imp().hover_epoch.set(self.imp().hover_epoch.get() + 1);
         self.imp().hovered.take();
+        self.imp().pointer.set(None);
+        self.imp().popover_anchor.set(None);
         if let Some(pop) = self.imp().popover.take() {
             pop.unparent();
         }
@@ -592,7 +617,9 @@ impl Treemap {
             ),
         );
     }
-    fn enter(&self, button: &gtk::Button, cell: &MapItem, immediate: bool) {
+    fn enter(&self, button: &gtk::Button, cell: &MapItem, pointer: Option<(f64, f64)>) {
+        self.imp().pointer.set(pointer);
+        self.imp().popover_anchor.set(None);
         let epoch = self.imp().hover_epoch.get() + 1;
         self.imp().hover_epoch.set(epoch);
         *self.imp().hovered.borrow_mut() = Some(cell.clone());
@@ -600,7 +627,7 @@ impl Treemap {
         if let Some(hover) = self.imp().hover.borrow().as_ref() {
             hover(Some(cell.clone()));
         }
-        if immediate || self.imp().popover.borrow().is_some() {
+        if pointer.is_none() || self.imp().popover.borrow().is_some() {
             self.show_popover(button, cell);
         } else {
             glib::timeout_add_local_once(
@@ -770,11 +797,22 @@ impl Treemap {
                 pop
             });
         pop.set_child(Some(&content));
-        pop.set_pointing_to(Some(&gdk::Rectangle::new(
-            0,
-            0,
-            button.width(),
-            button.height(),
+        if self.imp().popover_anchor.get().is_none()
+            && let Some((x, y)) = self.imp().pointer.get()
+        {
+            let (_, size) = pop.preferred_size();
+            if button.width() > size.width() + 48 && button.height() > size.height() + 48 {
+                self.imp().popover_anchor.set(Some(gdk::Rectangle::new(
+                    x.round() as i32 + 12,
+                    y.round() as i32 + 12,
+                    1,
+                    1,
+                )));
+                pop.set_position(gtk::PositionType::Bottom);
+            }
+        }
+        pop.set_pointing_to(Some(&self.imp().popover_anchor.get().unwrap_or_else(
+            || gdk::Rectangle::new(0, 0, button.width(), button.height()),
         )));
         if !pop.is_visible() {
             pop.popup();
@@ -933,194 +971,282 @@ mod tests {
     #[test]
     #[ignore = "needs an X server; verify.sh runs it"]
     fn gtk_tiles_focus_drill_hover_and_sample_icons() {
-        adw::init().unwrap();
-        crate::ui::load_css();
-        let date = glib::DateTime::from_local(2026, 10, 28, 0, 0, 0.).unwrap();
-        let detail = crate::demo::Demo::new().day(day::query(&date));
-        let opened = Rc::new(RefCell::new(Drill::Day));
-        let map = Treemap::new(
-            detail.clone(),
-            Drill::Day,
-            HashMap::new(),
-            {
-                let opened = opened.clone();
-                Rc::new(move |drill| *opened.borrow_mut() = drill)
-            },
-            Rc::new(|_| {}),
-        );
-        let window = gtk::Window::builder()
-            .child(&map)
-            .default_width(720)
-            .default_height(400)
-            .build();
-        window.present();
-        let settle = || {
-            let main = glib::MainLoop::new(None, false);
-            glib::timeout_add_local_once(Duration::from_millis(350), {
-                let main = main.clone();
-                move || main.quit()
-            });
-            main.run();
-        };
-        settle();
-        for (width, height) in [(648, 300), (1208, 300), (900, 450), (1600, 800)] {
-            map.allocate(width, height, -1, None);
-            let (groups, tiles) = cells(
-                &detail,
-                &Drill::Day,
-                Rect::new(0., 0., width as f64, height as f64),
+        gtk::test_synced(|| {
+            adw::init().unwrap();
+            crate::ui::load_css();
+            let date = glib::DateTime::from_local(2026, 10, 28, 0, 0, 0.).unwrap();
+            let detail = crate::demo::Demo::new().day(day::query(&date));
+            let opened = Rc::new(RefCell::new(Drill::Day));
+            let map = Treemap::new(
+                detail.clone(),
+                Drill::Day,
+                HashMap::new(),
+                {
+                    let opened = opened.clone();
+                    Rc::new(move |drill| *opened.borrow_mut() = drill)
+                },
+                Rc::new(|_| {}),
             );
-            let expected: HashMap<_, _> = groups
-                .into_iter()
-                .chain(tiles.into_iter().map(|(item, rect)| (item.id, rect)))
-                .collect();
-            let children = map.imp().children.borrow();
-            let mut visible = 0;
-            for child in children.iter().filter(|c| c.button.is_child_visible()) {
-                visible += 1;
-                let rect = expected
-                    .get(&child.id)
-                    .expect("visible button must have a matching layout item");
-                if let Some(item) = &child.item {
-                    assert_eq!(child.id, item.borrow().id);
-                }
-                let bounds = child.button.compute_bounds(&map).unwrap();
-                assert_eq!(bounds.x(), rect.x.round() as f32, "{}", child.id);
-                assert_eq!(bounds.y(), rect.y.round() as f32, "{}", child.id);
-                assert_eq!(
-                    bounds.width(),
-                    ((rect.x + rect.w).round() - rect.x.round()) as f32,
-                    "{}",
-                    child.id
+            let window = gtk::Window::builder()
+                .child(&map)
+                .default_width(720)
+                .default_height(400)
+                .build();
+            window.present();
+            let settle = || {
+                let main = glib::MainLoop::new(None, false);
+                glib::timeout_add_local_once(Duration::from_millis(350), {
+                    let main = main.clone();
+                    move || main.quit()
+                });
+                main.run();
+            };
+            settle();
+            for (width, height) in [(648, 300), (1208, 300), (900, 450), (1600, 800)] {
+                map.allocate(width, height, -1, None);
+                let (groups, tiles) = cells(
+                    &detail,
+                    &Drill::Day,
+                    Rect::new(0., 0., width as f64, height as f64),
                 );
+                let expected: HashMap<_, _> = groups
+                    .into_iter()
+                    .chain(tiles.into_iter().map(|(item, rect)| (item.id, rect)))
+                    .collect();
+                let children = map.imp().children.borrow();
+                let mut visible = 0;
+                for child in children.iter().filter(|c| c.button.is_child_visible()) {
+                    visible += 1;
+                    let rect = expected
+                        .get(&child.id)
+                        .expect("visible button must have a matching layout item");
+                    if let Some(item) = &child.item {
+                        assert_eq!(child.id, item.borrow().id);
+                    }
+                    let bounds = child.button.compute_bounds(&map).unwrap();
+                    assert_eq!(bounds.x(), rect.x.round() as f32, "{}", child.id);
+                    assert_eq!(bounds.y(), rect.y.round() as f32, "{}", child.id);
+                    assert_eq!(
+                        bounds.width(),
+                        ((rect.x + rect.w).round() - rect.x.round()) as f32,
+                        "{}",
+                        child.id
+                    );
+                    assert_eq!(
+                        bounds.height(),
+                        ((rect.y + rect.h).round() - rect.y.round()) as f32,
+                        "{}",
+                        child.id
+                    );
+                }
                 assert_eq!(
-                    bounds.height(),
-                    ((rect.y + rect.h).round() - rect.y.round()) as f32,
-                    "{}",
-                    child.id
+                    visible,
+                    expected.values().filter(|r| r.w > 0. && r.h > 0.).count()
                 );
             }
+            let button = map
+                .imp()
+                .children
+                .borrow()
+                .iter()
+                .find(|c| c.item.is_some() && c.button.is_child_visible())
+                .unwrap()
+                .button
+                .clone();
+            assert!(button.width() > 0 && button.height() > 0);
+            assert!(gtk::test_accessible_has_property(
+                &button,
+                gtk::AccessibleProperty::Label
+            ));
+            assert!(gtk::test_accessible_has_property(
+                &button,
+                gtk::AccessibleProperty::Description
+            ));
+            map.focus_first();
+            assert!(button.has_focus());
+            button.emit_clicked();
             assert_eq!(
-                visible,
-                expected.values().filter(|r| r.w > 0. && r.h > 0.).count()
+                *opened.borrow(),
+                Drill::Item("demo-mac".into(), "app:com.apple.dt.Xcode".into())
             );
-        }
-        let button = map
-            .imp()
-            .children
-            .borrow()
-            .iter()
-            .find(|c| c.item.is_some() && c.button.is_child_visible())
-            .unwrap()
-            .button
-            .clone();
-        assert!(button.width() > 0 && button.height() > 0);
-        assert!(gtk::test_accessible_has_property(
-            &button,
-            gtk::AccessibleProperty::Label
-        ));
-        assert!(gtk::test_accessible_has_property(
-            &button,
-            gtk::AccessibleProperty::Description
-        ));
-        map.focus_first();
-        assert!(button.has_focus());
-        button.emit_clicked();
-        assert_eq!(
-            *opened.borrow(),
-            Drill::Item("demo-mac".into(), "app:com.apple.dt.Xcode".into())
-        );
-        let cell = map
-            .imp()
-            .children
-            .borrow()
-            .iter()
-            .find_map(|c| c.item.as_ref().map(|i| i.borrow().clone()))
-            .unwrap();
-        map.enter(&button, &cell, false);
-        assert!(map.imp().popover.borrow().is_none());
-        settle();
-        assert!(
-            map.imp()
-                .popover
+            let cell = map
+                .imp()
+                .children
                 .borrow()
-                .as_ref()
-                .is_some_and(|p| p.is_visible())
-        );
-        let popover = map.imp().popover.borrow().clone().unwrap();
-        let mut updated = detail.clone();
-        updated.devices[0].items[0].total_ms += 60_000;
-        map.update(updated, HashMap::new());
-        settle();
-        assert!(button.has_focus());
-        assert_eq!(map.imp().popover.borrow().as_ref(), Some(&popover));
-        assert_eq!(map.imp().hovered.borrow().as_ref().unwrap().id, cell.id);
-        assert_eq!(
-            popover.pointing_to(),
-            (
-                true,
-                gdk::Rectangle::new(0, 0, button.width(), button.height())
-            )
-        );
-        assert!(map.dismiss_hover());
-        assert!(!map.dismiss_hover());
-        assert!(map.imp().popover.borrow().is_none());
-        let mut with_other = detail.clone();
-        let mut tiny = with_other.devices[0].items[0].clone();
-        tiny.key = "app:tiny".into();
-        tiny.name = "Tiny".into();
-        tiny.total_ms = 60_000;
-        tiny.sessions = vec![spentday_core::Session {
-            start_ms: detail.start_ms + 1000,
-            end_ms: detail.start_ms + 61_000,
-        }];
-        with_other.devices[0].items.push(tiny);
-        with_other.devices[0].total_ms += 60_000;
-        with_other.device_ms += 60_000;
-        map.update(with_other, HashMap::new());
-        settle();
-        let other = map
-            .imp()
-            .children
-            .borrow()
-            .iter()
-            .find_map(|child| {
-                child
-                    .item
+                .iter()
+                .find_map(|c| c.item.as_ref().map(|i| i.borrow().clone()))
+                .unwrap();
+            window.set_default_size(1600, 900);
+            settle();
+            map.clear_hover();
+            map.enter(&button, &cell, Some((40., 35.)));
+            assert!(map.imp().popover.borrow().is_none());
+            settle();
+            assert!(
+                map.imp()
+                    .popover
+                    .borrow()
                     .as_ref()
-                    .filter(|item| !item.borrow().hidden.is_empty())
-                    .map(|_| child.button.clone())
-            })
-            .unwrap();
-        other.grab_focus();
-        other.emit_clicked();
-        assert!(
-            map.imp()
-                .popover
+                    .is_some_and(|p| p.is_visible())
+            );
+            let popover = map.imp().popover.borrow().clone().unwrap();
+            let anchor = gdk::Rectangle::new(52, 47, 1, 1);
+            assert_eq!(popover.pointing_to(), (true, anchor));
+            assert_eq!(popover.position(), gtk::PositionType::Bottom);
+            let original_content = popover.child().unwrap();
+            let mut updated = detail.clone();
+            updated.devices[0].items[0].total_ms += 60_000;
+            updated.devices[0].items[0].sessions =
+                cell.sessions().iter().cycle().take(20).cloned().collect();
+            map.update(updated.clone(), HashMap::new());
+            settle();
+            assert!(button.has_focus());
+            assert_eq!(map.imp().popover.borrow().as_ref(), Some(&popover));
+            assert_eq!(map.imp().hovered.borrow().as_ref().unwrap().id, cell.id);
+            assert_eq!(popover.pointing_to(), (true, anchor));
+            let content = popover.child().unwrap();
+            assert_ne!(content, original_content);
+            let scroll = content
+                .last_child()
+                .unwrap()
+                .downcast::<gtk::ScrolledWindow>()
+                .unwrap();
+            scroll.vadjustment().set_value(40.);
+            assert_eq!(scroll.vadjustment().value(), 40.);
+            updated.devices[1].items[0].total_ms += 60_000;
+            map.update(updated, HashMap::new());
+            settle();
+            assert_eq!(popover.child().as_ref(), Some(&content));
+            assert_eq!(scroll.vadjustment().value(), 40.);
+            assert_eq!(popover.pointing_to(), (true, anchor));
+            assert!(map.dismiss_hover());
+            map.enter(&button, &cell, None);
+            assert_eq!(
+                map.imp().popover.borrow().as_ref().unwrap().pointing_to(),
+                (
+                    true,
+                    gdk::Rectangle::new(0, 0, button.width(), button.height())
+                )
+            );
+            assert!(map.dismiss_hover());
+            window.set_default_size(720, 400);
+            settle();
+            map.enter(&button, &cell, Some((10., 10.)));
+            settle();
+            assert_eq!(
+                map.imp().popover.borrow().as_ref().unwrap().pointing_to(),
+                (
+                    true,
+                    gdk::Rectangle::new(0, 0, button.width(), button.height())
+                )
+            );
+            assert!(map.dismiss_hover());
+            assert!(!map.dismiss_hover());
+            assert!(map.imp().popover.borrow().is_none());
+            let mut with_other = detail.clone();
+            let mut tiny = with_other.devices[0].items[0].clone();
+            tiny.key = "app:tiny".into();
+            tiny.name = "Tiny".into();
+            tiny.total_ms = 60_000;
+            tiny.sessions = vec![spentday_core::Session {
+                start_ms: detail.start_ms + 1000,
+                end_ms: detail.start_ms + 61_000,
+            }];
+            with_other.devices[0].items.push(tiny);
+            with_other.devices[0].total_ms += 60_000;
+            with_other.device_ms += 60_000;
+            map.update(with_other, HashMap::new());
+            settle();
+            let other = map
+                .imp()
+                .children
                 .borrow()
-                .as_ref()
-                .is_some_and(|p| p.is_visible() && !p.is_autohide())
-        );
-        assert!(map.dismiss_hover());
-        assert!(map.imp().hovered.borrow().is_none());
-        assert!(other.has_focus());
-        let mut icons = super::super::icons::IconSampler::new();
-        let mut item = detail.devices[0].items[0].clone();
-        item.app_key = "chromium".into();
-        item.app_ids = vec!["chromium".into()];
-        let mut local = detail.clone();
-        local.devices[0].items = vec![item.clone()];
-        let resolved = super::super::icons::resolve(&local);
-        assert_ne!(
-            icons.seed(&item, &resolved["chromium"], &window),
-            colors::hashed("chromium")
-        );
-        item.app_key = "remote.app.without.local.match".into();
-        item.app_ids = vec![item.app_key.clone()];
-        assert_eq!(
-            icons.seed(&item, &[], &window),
-            colors::hashed(&item.app_key)
-        );
-        window.close();
+                .iter()
+                .find_map(|child| {
+                    child
+                        .item
+                        .as_ref()
+                        .filter(|item| !item.borrow().hidden.is_empty())
+                        .map(|_| child.button.clone())
+                })
+                .unwrap();
+            other.grab_focus();
+            other.emit_clicked();
+            assert!(
+                map.imp()
+                    .popover
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|p| p.is_visible() && !p.is_autohide())
+            );
+            assert!(map.dismiss_hover());
+            assert!(map.imp().hovered.borrow().is_none());
+            assert!(other.has_focus());
+            let mut icons = super::super::icons::IconSampler::new();
+            let mut item = detail.devices[0].items[0].clone();
+            item.app_key = "chromium".into();
+            item.app_ids = vec!["chromium".into()];
+            let mut local = detail.clone();
+            local.devices[0].items = vec![item.clone()];
+            let resolved = super::super::icons::resolve(&local);
+            assert_ne!(
+                icons.seed(&item, &resolved["chromium"], &window),
+                colors::hashed("chromium")
+            );
+            item.app_key = "remote.app.without.local.match".into();
+            item.app_ids = vec![item.app_key.clone()];
+            assert_eq!(
+                icons.seed(&item, &[], &window),
+                colors::hashed(&item.app_key)
+            );
+            for offset in 1..=3 {
+                let mut current = detail.clone();
+                current.start_ms += offset * 86_400_000;
+                current.end_ms += offset * 86_400_000;
+                current.devices.truncate(1);
+                let device = &mut current.devices[0];
+                device.device.id = format!("day-{offset}");
+                device.device.name = format!("Device {offset}");
+                device.items.truncate(offset as usize);
+                for (index, item) in device.items.iter_mut().enumerate() {
+                    item.key = format!("app:day-{offset}-{index}");
+                    item.name = format!("Day {offset} item {index}");
+                }
+                let mut labels = HashMap::from([(
+                    device.device.id.clone(),
+                    format!(
+                        "{}, {}. Open device",
+                        device.device.name,
+                        day::accessible_duration(device.total_ms)
+                    ),
+                )]);
+                for item in &device.items {
+                    labels.insert(
+                        format!("{}/{}", device.device.id, item.key),
+                        format!("{}, {}", item.name, day::accessible_duration(item.total_ms)),
+                    );
+                }
+                map.update(current, HashMap::new());
+                settle();
+                assert_eq!(map.observe_children().n_items() as usize, labels.len());
+                assert_eq!(map.imp().children.borrow().len(), labels.len());
+                for child in map.imp().children.borrow().iter() {
+                    let expected =
+                        std::ffi::CString::new(labels.get(&child.id).unwrap().as_str()).unwrap();
+                    let mismatch: Option<glib::GString> = unsafe {
+                        glib::translate::from_glib_full(
+                            gtk::ffi::gtk_test_accessible_check_property(
+                                child.button.upcast_ref::<gtk::Accessible>().as_ptr(),
+                                gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                expected.as_ptr(),
+                            ),
+                        )
+                    };
+                    assert_eq!(mismatch, None);
+                }
+            }
+            assert!(button.parent().is_none());
+            window.close();
+        });
     }
 }
