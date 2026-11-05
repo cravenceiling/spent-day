@@ -7,6 +7,39 @@ window titles, because a private browser window shows its page title there, and 
 URL. On Sway, the window tree Spent Day reads includes every window's title. On Hyprland, the
 reply includes the focused window's title. Spent Day takes the app id and ignores the rest.
 
+## Day view
+
+The dashboard shows one local calendar day. Its headline counts time on overlapping devices once.
+**Details** shows simultaneous device time, the longest stretch, time after 23:00, and every app
+and site ranked within its device. Browser time belongs to either its site or its app, without
+counting both.
+
+Use the header arrows or Ctrl+Left and Ctrl+Right to change days. The next arrow stops at today.
+An open dashboard follows today across midnight unless a past day is selected. The weekday
+comparison needs at least two of the previous four matching weekdays with data. Today compares
+only up to the current local time.
+
+Click a device label to open its group, then an item to see its sessions in time order. An item
+also opens its sessions directly from the day view. Breadcrumbs and Escape go back. Tab and the
+arrow keys move focus between tiles. Return and Space activate a tile. Hover shows the item's
+sessions after 300 ms, with immediate updates between tiles. Items below 0.3% of the day total
+share an **Other** tile. Details still lists each item.
+
+The window follows the system light or dark style and the system animation preference. Tile
+colours come from installed application icons, without displaying those icons. Sites and apps
+without a matching local installation use a stable hue. Labels show only whole text that fits.
+
+`spentday --demo` opens 28 October 2026 with the same items, sessions, and colour samples as the
+macOS demo. The headline is 13h 50m, with 14h 15m of device time. Four earlier sample weekdays
+use proportionally shorter sessions to exercise the 47-minute comparison. Other dates are empty.
+
+![Day treemap in dark style](screenshots/dashboard-day-demo.png)
+
+Screenshots: [hover](screenshots/dashboard-hover-demo.png),
+[device](screenshots/dashboard-device-demo.png), [sessions](screenshots/dashboard-sessions-demo.png),
+[light](screenshots/dashboard-light-demo.png), [720 by 560](screenshots/dashboard-small-demo.png),
+and [empty](screenshots/dashboard-empty-demo.png).
+
 ## Build and install
 
 Needs Rust stable, a C compiler, pkg-config, and the development files for GTK 4.18 or later and
@@ -115,7 +148,15 @@ from the connection that owns `org.kde.KWin`, which is the one KWin scripts call
 extension's tests under Node, and the tests that need a session bus or an X server. Then it runs
 end-to-end checks: X11 focus and idle, the browser extension (tabs, an incognito window, a new
 tab, the popup's health check), a hung `swaymsg`, `install.sh`, and headless Sway focus and idle.
-It saves screenshots to `screenshots/`.
+It saves screenshots to `screenshots/`. The GTK test checks tile focus, accessible labels,
+drill activation, the delayed hover popover, local icon sampling, and colour fallback.
+
+Inside the dev container, `cargo test` runs the layout and colour checks with literal expected
+values from the macOS tests. `cargo test -p spentday-core` at the repository root checks the
+shared day API. `CARGO_TARGET_DIR=/target apps/linux/snapshot.sh` at the root captures the seven
+demo states under Xvfb after the Linux binary has been built into `/target`. The capture uses
+libadwaita's test colour-scheme override and records no activity. `verify.sh` calls the same
+script. The `xauth` package in `Dockerfile.dev` lets `xvfb-run` create its isolated display.
 
 GNOME and KDE are checked with stand-ins. For GNOME, `tests/gnome-shell.js` loads the real
 `gnome-extension/extension.js` in gjs, with a stub for the Shell's focused window, and Spent Day

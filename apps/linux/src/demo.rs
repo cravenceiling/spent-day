@@ -1,97 +1,274 @@
-//! Sample data for `spentday --demo`, so the window can be designed and screenshotted without a
-//! database.
-
-use crate::range::{DAY_MS, HOUR_MS};
-use spentday_core::{AppUsage, DeviceInfo, DeviceUsage, DomainUsage, Platform, Summary, SummaryQuery, SyncConfig};
-use std::collections::HashMap;
+use crate::{
+    colors::{self, Lch, Rgb},
+    day,
+    layout::union_sessions,
+};
+use gtk::glib;
+use spentday_core::{
+    DayDetail, DayItem, DayQuery, DeviceDay, DeviceInfo, ItemKind, Platform, Session, SyncConfig,
+};
 use std::sync::Mutex;
 
 pub struct Demo {
-    pub devices: Vec<DeviceInfo>,
     pub sync: Mutex<Option<SyncConfig>>,
 }
-
-/// Share of an hour in use, by hour of day.
-const DAY_SHAPE: [f64; 24] = [
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.12, 0.45, 0.82, 0.93, 0.88, 0.41, 0.63, 0.97, 0.9, 0.77, 0.52, 0.18, 0.32,
-    0.58, 0.44, 0.15, 0.0,
+const ITEMS: &[(&str, &str, ItemKind, &str, &[&str])] = &[
+    (
+        "xcode",
+        "Xcode",
+        ItemKind::App,
+        "com.apple.dt.Xcode",
+        &["com.apple.dt.Xcode"],
+    ),
+    ("github", "github.com", ItemKind::Site, "", &[]),
+    (
+        "terminal",
+        "Terminal",
+        ItemKind::App,
+        "com.apple.Terminal",
+        &["com.apple.Terminal"],
+    ),
+    (
+        "mail",
+        "Mail",
+        ItemKind::App,
+        "com.apple.mail",
+        &["com.apple.mail"],
+    ),
+    (
+        "slack",
+        "Slack",
+        ItemKind::App,
+        "slack",
+        &["com.tinyspeck.slackmacgap"],
+    ),
+    (
+        "messages",
+        "Messages",
+        ItemKind::App,
+        "com.apple.MobileSMS",
+        &["com.apple.MobileSMS"],
+    ),
+    ("instagram", "Instagram", ItemKind::App, "instagram", &[]),
+    ("youtube", "YouTube", ItemKind::App, "youtube", &[]),
+    ("youtubecom", "youtube.com", ItemKind::Site, "", &[]),
+    (
+        "chrome",
+        "Chrome",
+        ItemKind::App,
+        "chrome",
+        &["com.google.Chrome"],
+    ),
+    ("hn", "news.ycombinator.com", ItemKind::Site, "", &[]),
+    (
+        "vscode",
+        "Visual Studio Code",
+        ItemKind::App,
+        "vscode",
+        &["com.microsoft.VSCode"],
+    ),
 ];
-const WEEK_HOURS: [f64; 7] = [5.4, 6.2, 4.1, 7.3, 5.8, 2.2, 3.1];
-const DEVICE_SHARE: [f64; 3] = [0.58, 0.27, 0.15];
-
-/// Domains and each one's share of the app's time.
-type Sites = &'static [(&'static str, f64)];
-
-const APPS: &[(&str, &str, f64, Sites)] = &[
-    ("firefox", "Firefox", 0.31, &[("github.com", 0.36), ("docs.rs", 0.21), ("youtube.com", 0.17), ("news.ycombinator.com", 0.11), ("mail.proton.me", 0.08), ("", 0.07)]),
-    ("code", "Visual Studio Code", 0.22, &[]),
-    ("org.gnome.Ptyxis", "Ptyxis", 0.13, &[]),
-    ("chrome", "Chrome", 0.11, &[("youtube.com", 0.52), ("docs.google.com", 0.31), ("maps.google.com", 0.17)]),
-    ("slack", "Slack", 0.09, &[]),
-    ("org.gnome.Nautilus", "Files", 0.05, &[]),
-    ("spotify", "Spotify", 0.04, &[]),
-    ("org.gnome.TextEditor", "Text Editor", 0.03, &[]),
-    ("org.gnome.Calendar", "Calendar", 0.02, &[]),
+const BLOCKS: &[(&str, &str, i32, i32)] = &[
+    ("demo-phone", "messages", 432, 446),
+    ("demo-phone", "instagram", 446, 468),
+    ("demo-phone", "chrome", 500, 514),
+    ("demo-mac", "mail", 529, 550),
+    ("demo-mac", "xcode", 550, 655),
+    ("demo-mac", "github", 655, 680),
+    ("demo-mac", "xcode", 680, 755),
+    ("demo-phone", "instagram", 760, 795),
+    ("demo-phone", "messages", 795, 808),
+    ("demo-mac", "slack", 810, 830),
+    ("demo-mac", "xcode", 830, 940),
+    ("demo-mac", "terminal", 940, 955),
+    ("demo-mac", "github", 955, 990),
+    ("demo-mac", "xcode", 990, 1065),
+    ("demo-mac", "slack", 1065, 1085),
+    ("demo-phone", "youtube", 1075, 1100),
+    ("demo-linux", "hn", 1145, 1180),
+    ("demo-linux", "vscode", 1180, 1225),
+    ("demo-mac", "youtubecom", 1230, 1270),
+    ("demo-phone", "instagram", 1250, 1265),
+    ("demo-phone", "youtube", 1300, 1355),
+    ("demo-phone", "instagram", 1355, 1378),
+    ("demo-phone", "messages", 1400, 1418),
 ];
-
 impl Demo {
-    pub fn new() -> Demo {
-        let device = |id: &str, name: &str, platform| DeviceInfo { id: id.into(), name: name.into(), platform, last_seen_ms: 0 };
-        Demo {
-            devices: vec![
-                device("demo-linux", "thinkpad", Platform::Linux),
-                device("demo-mac", "MacBook Air", Platform::Macos),
-                device("demo-android", "Pixel 9", Platform::Android),
-            ],
+    pub fn new() -> Self {
+        Self {
             sync: Mutex::new(None),
         }
     }
-
-    pub fn summary(&self, q: SummaryQuery) -> Summary {
-        let now = crate::tracker::now_ms();
-        let share = match &q.device_id {
-            None => 1.0,
-            Some(id) => self.devices.iter().position(|d| &d.id == id).map_or(0.0, |i| DEVICE_SHARE[i]),
-        };
-        let slots = ((q.end_ms - q.start_ms + q.bucket_ms - 1) / q.bucket_ms) as usize;
-        let buckets: Vec<i64> = (0..slots)
-            .map(|i| {
-                let start = q.start_ms + i as i64 * q.bucket_ms;
-                let ms = if q.bucket_ms >= DAY_MS {
-                    WEEK_HOURS[i % 7] * HOUR_MS as f64
-                } else {
-                    DAY_SHAPE[i % 24] * HOUR_MS as f64
-                };
-                let elapsed = ((now - start) as f64 / q.bucket_ms as f64).clamp(0.0, 1.0);
-                (ms * share * elapsed) as i64
-            })
-            .collect();
-        let total_ms: i64 = buckets.iter().sum();
-        let part = |ratio: f64| (total_ms as f64 * ratio) as i64;
-        let apps: Vec<AppUsage> = APPS
-            .iter()
-            .map(|(key, name, ratio, domains)| AppUsage {
-                app_key: key.to_string(),
-                app_name: name.to_string(),
-                is_browser: !domains.is_empty(),
-                total_ms: part(*ratio),
-                domains: domains.iter().map(|(d, r)| DomainUsage { domain: d.to_string(), total_ms: part(ratio * r) }).collect(),
-                app_ids: vec![key.to_string()],
-            })
-            .collect();
-        let mut sites: HashMap<String, i64> = HashMap::new();
-        for domain in apps.iter().flat_map(|a| &a.domains).filter(|d| !d.domain.is_empty()) {
-            *sites.entry(domain.domain.clone()).or_default() += domain.total_ms;
+    pub fn day(&self, q: DayQuery) -> DayDetail {
+        let date = glib::DateTime::from_unix_local(q.start_ms / 1000).unwrap();
+        let midnight = day::midnight(&date);
+        let fixed = glib::DateTime::from_local(2026, 10, 28, 0, 0, 0.).unwrap();
+        let days = (fixed.to_unix() - midnight.to_unix()) / 86400;
+        let history = (1..=4).any(|week| midnight == fixed.add_days(-7 * week).unwrap());
+        let populated = days == 0 || history;
+        let mut devices = Vec::new();
+        for (id, name, platform) in [
+            ("demo-mac", "MacBook Pro", Platform::Macos),
+            ("demo-phone", "Pixel 9", Platform::Android),
+            ("demo-linux", "ThinkPad", Platform::Linux),
+        ] {
+            let mut items = Vec::new();
+            if populated {
+                for &(key, name, kind, app_key, app_ids) in ITEMS {
+                    let mut sessions = Vec::new();
+                    for &(_, _, from, to) in BLOCKS.iter().filter(|b| b.0 == id && b.1 == key) {
+                        let instant = |minute: i32| {
+                            let ms = glib::DateTime::new(
+                                &date.timezone(),
+                                date.year(),
+                                date.month(),
+                                date.day_of_month(),
+                                minute / 60,
+                                minute % 60,
+                                0.,
+                            )
+                            .unwrap()
+                            .to_unix()
+                                * 1000;
+                            if history {
+                                midnight.to_unix() * 1000
+                                    + (ms - midnight.to_unix() * 1000) * 46_980_000 / 49_800_000
+                            } else {
+                                ms
+                            }
+                        };
+                        let start_ms = instant(from).max(q.start_ms);
+                        let end_ms = instant(to).min(q.end_ms);
+                        if end_ms > start_ms {
+                            sessions.push(Session { start_ms, end_ms });
+                        }
+                    }
+                    if !sessions.is_empty() {
+                        items.push(DayItem {
+                            key: format!(
+                                "{}:{}",
+                                if kind == ItemKind::Site {
+                                    "site"
+                                } else {
+                                    "app"
+                                },
+                                if kind == ItemKind::Site {
+                                    name
+                                } else {
+                                    app_key
+                                }
+                            ),
+                            name: name.into(),
+                            kind,
+                            app_key: app_key.into(),
+                            app_ids: app_ids.iter().map(|s| s.to_string()).collect(),
+                            total_ms: sessions.iter().map(|s| s.end_ms - s.start_ms).sum(),
+                            sessions,
+                        });
+                    }
+                }
+            }
+            items.sort_by(|a, b| b.total_ms.cmp(&a.total_ms).then(a.key.cmp(&b.key)));
+            if !items.is_empty() {
+                devices.push(DeviceDay {
+                    device: DeviceInfo {
+                        id: id.into(),
+                        name: name.into(),
+                        platform,
+                        last_seen_ms: q.end_ms,
+                    },
+                    total_ms: items.iter().map(|i| i.total_ms).sum(),
+                    items,
+                });
+            }
         }
-        let mut sites: Vec<DomainUsage> = sites.into_iter().map(|(domain, total_ms)| DomainUsage { domain, total_ms }).collect();
-        sites.sort_by_key(|s| std::cmp::Reverse(s.total_ms));
-        let by_device = self
-            .devices
-            .iter()
-            .zip(DEVICE_SHARE)
-            .filter(|(d, _)| q.device_id.as_ref().is_none_or(|id| id == &d.id))
-            .map(|(d, s)| DeviceUsage { device: d.clone(), total_ms: (total_ms as f64 * s / share) as i64 })
+        devices.sort_by(|a, b| {
+            b.total_ms
+                .cmp(&a.total_ms)
+                .then(a.device.id.cmp(&b.device.id))
+        });
+        let wall_ms = union_sessions(
+            devices
+                .iter()
+                .flat_map(|d| d.items.iter().flat_map(|i| i.sessions.clone())),
+        )
+        .iter()
+        .map(|s| s.end_ms - s.start_ms)
+        .sum();
+        DayDetail {
+            start_ms: q.start_ms,
+            end_ms: q.end_ms,
+            wall_ms,
+            device_ms: devices.iter().map(|d| d.total_ms).sum(),
+            devices,
+        }
+    }
+}
+pub fn color_seed(item: &DayItem) -> Lch {
+    // Frozen icon samples make screenshots independent of locally installed apps.
+    let hex = match item.name.as_str() {
+        "Xcode" => 0x4090e7,
+        "Mail" => 0x235d99,
+        "Visual Studio Code" => 0x59a9e3,
+        "Instagram" => 0xd95a94,
+        "Chrome" => 0xd5ab34,
+        "news.ycombinator.com" => 0xee763f,
+        "YouTube" => 0xde5656,
+        "youtube.com" => 0xfda29c,
+        "Messages" => 0x1a5bb4,
+        "Slack" => 0x814d81,
+        "github.com" => 0x333333,
+        "Terminal" => 0x404040,
+        _ => return colors::hashed(&item.key),
+    };
+    let seed = Rgb::hex(hex).lch();
+    if seed.c < 0.02 {
+        Lch {
+            l: seed.l,
+            c: 0.,
+            h: 0.,
+        }
+    } else {
+        seed
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn exact_macos_demo() {
+        let demo = Demo::new();
+        let date = glib::DateTime::from_local(2026, 10, 28, 0, 0, 0.).unwrap();
+        let detail = demo.day(day::query(&date));
+        assert_eq!((detail.wall_ms, detail.device_ms), (49_800_000, 51_300_000));
+        assert_eq!(
+            detail
+                .devices
+                .iter()
+                .map(|d| d.total_ms)
+                .collect::<Vec<_>>(),
+            vec![32_460_000, 14_040_000, 4_800_000]
+        );
+        assert_eq!(detail.devices[0].items[0].total_ms, 21_900_000);
+        assert_eq!(
+            detail
+                .devices
+                .iter()
+                .flat_map(|d| &d.items)
+                .flat_map(|i| &i.sessions)
+                .count(),
+            23
+        );
+        assert_eq!(demo.day(day::query(&date.add_days(1).unwrap())).wall_ms, 0);
+        let history: Vec<_> = day::usual_queries(&date, &date.add_days(1).unwrap())
+            .into_iter()
+            .map(|q| demo.day(q))
             .collect();
-        Summary { start_ms: q.start_ms, end_ms: q.end_ms, total_ms, by_device, apps, sites, buckets }
+        assert!((day::usual_total(&history).unwrap() - 46_980_000).abs() < 10);
+        let partial = demo.day(DayQuery {
+            start_ms: detail.start_ms + 550 * 60_000,
+            end_ms: detail.start_ms + 600 * 60_000,
+        });
+        assert_eq!(partial.wall_ms, 50 * 60_000);
     }
 }

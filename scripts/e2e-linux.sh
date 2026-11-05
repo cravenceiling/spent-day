@@ -8,7 +8,7 @@
 #   e2e-linux.sh stop                    stops it with SIGTERM, which flushes the open span
 #   e2e-linux.sh focus                   switches focus between two xterms
 #   e2e-linux.sh cli ARGS...             runs spentday-cli
-#   e2e-linux.sh shot PNG                screenshots the dashboard with its device list open
+#   e2e-linux.sh shot PNG                screenshots the dashboard
 set -eu
 state=/tmp/e2e
 db=$state/linux.db
@@ -80,12 +80,6 @@ shot)
   SPENTDAY_DB="$db" daemon window "$spentday"
   xdotool search --sync --onlyvisible --name '^Spent Day$' >/dev/null
   sleep 3
-  eval "$(xdotool getwindowgeometry --shell "$(xdotool search --onlyvisible --name '^Spent Day$' | head -1)")"
-  # The device drop-down, first in the header bar. GTK drops a click that comes with the motion.
-  xdotool mousemove $((X + 73)) $((Y + 27))
-  sleep 0.5
-  xdotool mousedown 1 sleep 0.15 mouseup 1
-  sleep 2
   import -window root "$2"
   xdotool key Escape
   stop window
