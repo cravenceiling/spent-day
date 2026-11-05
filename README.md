@@ -17,7 +17,7 @@
 
 <p align="center">
   <img src="apps/macos/screenshots/dashboard-day-demo.png" alt="The macOS day treemap across three devices" height="320">
-  <img src="docs/assets/linux-dashboard.png" alt="The Linux dashboard" height="320">
+  <img src="apps/linux/screenshots/dashboard-day-demo.png" alt="The Linux day treemap across three devices" height="320">
   <img src="apps/android/screenshots/dashboard.png" alt="The Android dashboard" height="320">
 </p>
 
