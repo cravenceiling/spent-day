@@ -11,10 +11,14 @@ use crate::ui::panel::{self, Panel};
 use crate::{day, icons, scenes};
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
-use rune::{App, AppHandle, AppSpec, MacWindowOptions, RunOptions, WindowOptions, WindowSpec};
+use rune::{
+    App, AppHandle, AppSpec, Chord, DisplayTarget, Key, MacWindowOptions, OverlayPlacement,
+    RunOptions, WindowOptions, WindowSpec,
+};
 use spentday_core::SpentDay;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -58,6 +62,8 @@ static FAILED: AtomicBool = AtomicBool::new(false);
 pub fn show_fatal(shared: &Shared, fatal: Fatal) {
     FAILED.store(true, Ordering::Release);
     if let Some(ui) = shared.ui.get() {
+        ui.dash.close();
+        ui.panel.close();
         ui.fatal.update(move |s, _| *s = fatal);
         ui.fatal.open();
     }
@@ -95,7 +101,13 @@ pub fn run(opts: Opts) -> ExitCode {
         sync: Mutex::default(),
         ui: OnceLock::new(),
     });
-    let selected = opts.day.unwrap_or_else(|| day::today(&shared.tz));
+    let selected = opts.day.unwrap_or_else(|| {
+        if demo {
+            jiff::civil::date(2026, 10, 28)
+        } else {
+            day::today(&shared.tz)
+        }
+    });
 
     let dash_app = {
         let shared = shared.clone();
@@ -111,9 +123,29 @@ pub fn run(opts: Opts) -> ExitCode {
             )
         };
         App::new(spec)
+            .args(opts.rune.clone())
             .init(move || Dash::new(shared, selected))
             .windowless()
             .release_gpu_when_closed()
+            .tab_visits_controls(true)
+            .on_focus(|d, focused, tx| {
+                if focused {
+                    d.refresh(tx);
+                }
+            })
+            .on_reopen(|d, _, tx| {
+                if !FAILED.load(Ordering::Acquire) {
+                    d.refresh(tx);
+                }
+                if let Some(ui) = d.shared.ui.get() {
+                    if FAILED.load(Ordering::Acquire) {
+                        ui.fatal.open();
+                    } else {
+                        ui.dash.open();
+                    }
+                }
+                true
+            })
     };
     let panel_app = {
         let shared = shared.clone();
@@ -123,15 +155,31 @@ pub fn run(opts: Opts) -> ExitCode {
             ..AppSpec::new("Spent Day", panel::SIZE, || unreachable!(), panel::view)
         };
         App::new(spec)
+            .args(opts.rune.clone())
             .init(move || Panel::new(shared))
             .windowless()
-            .on_focus(Panel::on_focus)
+            .on_focus(|p, focused, tx| {
+                p.on_focus(focused, tx);
+                if focused {
+                    p.refresh(tx);
+                }
+            })
     };
     let fatal_app = App::new(AppSpec {
         scenes: scenes::FATAL,
+        on_key: Some(|_, ev, tx| {
+            if ev.key == Key::Escape || Chord::parse("mod+q").unwrap().matches_tx(ev, tx) {
+                tx.quit();
+                true
+            } else {
+                false
+            }
+        }),
         ..AppSpec::new("Spent Day", fatal::SIZE, Fatal::default, fatal::view)
     })
-    .windowless();
+    .args(opts.rune.clone())
+    .windowless()
+    .on_close(|_, tx| tx.quit());
     let handles = Handles {
         dash: dash_app.handle(),
         panel: panel_app.handle(),
@@ -141,20 +189,24 @@ pub fn run(opts: Opts) -> ExitCode {
     let _ = shared.ui.set(handles);
 
     let mut tracking = None;
+    let mut ticking = None;
     let mut _instance = None;
     if !headless {
+        let onboarding = platform::read_pref(Pref::OnboardingDone);
         let show = match opts.launch {
             Launch::Background => false,
             Launch::Dashboard | Launch::Settings => true,
-            Launch::Default => {
-                cfg!(target_os = "linux")
-                    || platform::read_pref(Pref::OnboardingDone) == Some(false)
-            }
+            Launch::Default => cfg!(target_os = "linux") || onboarding == Some(false),
         };
         let activate = dash.clone();
+        let fatal = shared.ui.get().unwrap().fatal.clone();
         let on_activate = Box::new(move |show: bool, token: String| {
             if show {
-                activate.activate(token)
+                if FAILED.load(Ordering::Acquire) {
+                    fatal.activate(token);
+                } else {
+                    activate.activate(token);
+                }
             }
         });
         match platform::claim_instance(demo, show, on_activate) {
@@ -166,7 +218,22 @@ pub fn run(opts: Opts) -> ExitCode {
             let (dash, panel) = (dash.clone(), panel.clone());
             // Runs on the main thread once the loop starts, with or without a window.
             dash.clone().update(move |_, _| {
-                platform::menu_bar(Box::new(move |_rect| panel.open()));
+                platform::menu_bar(Box::new(move |[x, y, width, height]| {
+                    if panel.is_visible() {
+                        panel.close();
+                    } else {
+                        panel.place(
+                            DisplayTarget::Primary,
+                            OverlayPlacement::Rect {
+                                x: (x + width / 2.0) as f32 - panel::SIZE.0 / 2.0,
+                                y: (y + height + 4.0) as f32,
+                                width: panel::SIZE.0,
+                                height: panel::SIZE.1,
+                            },
+                        );
+                        panel.open();
+                    }
+                }));
                 platform::install_quit_handler(Box::new(move || dash.quit()));
             });
         }
@@ -180,6 +247,9 @@ pub fn run(opts: Opts) -> ExitCode {
             );
         } else {
             if let Some(core) = core {
+                if let Err(e) = core.start_web_listener(7853) {
+                    eprintln!("spentday: browser extension listener on port 7853: {e}");
+                }
                 let on_fatal_shared = shared.clone();
                 let on_fatal = Box::new(move |body: String| {
                     show_fatal(
@@ -192,12 +262,19 @@ pub fn run(opts: Opts) -> ExitCode {
                 });
                 tracking = Some(platform::start_tracking(core, on_fatal));
             }
-            ticker(shared.clone());
+            if !demo {
+                ticking = Some(ticker(shared.clone()));
+            }
+            dash.update(move |d, tx| {
+                d.refresh(tx);
+                if opts.launch == Launch::Settings {
+                    d.overlay = Overlay::Settings;
+                } else if onboarding == Some(false) {
+                    d.overlay = Overlay::Onboarding;
+                }
+            });
             if show {
                 dash.open();
-            }
-            if opts.launch == Launch::Settings {
-                dash.update(|d, _| d.overlay = Overlay::Settings);
             }
         }
     }
@@ -228,6 +305,7 @@ pub fn run(opts: Opts) -> ExitCode {
             ]
         },
     );
+    drop(ticking);
     if let Some(tracking) = tracking {
         tracking.stop();
     }
@@ -258,20 +336,25 @@ fn quit_on_signals(dash: AppHandle<Dash>) {
 }
 
 /// Refreshes the dashboard every 30 s; syncs 10 s after start, then every 300 s.
-fn ticker(shared: Arc<Shared>) {
+fn ticker(shared: Arc<Shared>) -> Sender<()> {
+    let (stop, stopped) = mpsc::channel();
     std::thread::spawn(move || {
         let mut tick = 0u64;
-        loop {
-            std::thread::sleep(Duration::from_secs(10));
+        while stopped.recv_timeout(Duration::from_secs(10)) == Err(mpsc::RecvTimeoutError::Timeout)
+        {
             tick += 1;
             if let Some(ui) = shared.ui.get()
                 && tick.is_multiple_of(3)
             {
                 ui.dash.update_if(|d, tx| d.refresh(tx));
+                if cfg!(target_os = "macos") && ui.panel.is_visible() {
+                    ui.panel.update_if(Panel::refresh);
+                }
             }
             if !shared.demo && tick % 30 == 1 {
                 sync::run(&shared, Trigger::Auto);
             }
         }
     });
+    stop
 }
