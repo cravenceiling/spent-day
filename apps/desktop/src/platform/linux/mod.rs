@@ -8,9 +8,9 @@ mod paths;
 mod session;
 mod tracker;
 
+use super::{OnFatal, Pref};
 pub use instance::{InstanceGuard, claim_instance};
 pub use paths::db_path;
-use super::{OnFatal, Pref};
 use spentday_core::SpentDay;
 use std::path::PathBuf;
 use std::sync::Arc;

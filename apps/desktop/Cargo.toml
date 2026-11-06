@@ -33,21 +33,12 @@ tempfile = "3"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = [
-  "std", "block2", "NSString", "NSArray", "NSDictionary", "NSValue", "NSURL", "NSHost",
-  "NSUserDefaults", "NSFileManager", "NSNotification", "NSDistributedNotificationCenter",
-  "NSAppleScript", "NSAppleEventDescriptor", "NSAppleEventManager", "NSError", "NSGeometry",
-  "NSObject", "NSEnumerator", "NSBundle",
-] }
-objc2-app-kit = { version = "0.3", default-features = false, features = [
-  "std", "objc2-core-foundation", "NSApplication", "NSWorkspace", "NSRunningApplication",
-  "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView",
-  "NSResponder", "NSWindow", "NSScreen", "NSImage", "NSCell", "NSButtonCell", "NSGraphics",
-] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString", "CFDictionary", "CFArray", "CFNumber"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGSession", "CGEventSource", "CGEventTypes", "CGWindow"] }
-objc2-io-kit = { version = "0.3", default-features = false, features = ["std", "pwr_mgt"] }
-objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService"] }
+objc2-foundation = { version = "0.3", features = ["objc2-core-services"] }
+objc2-app-kit = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-io-kit = { version = "0.3", default-features = false, features = ["std", "pwr_mgt", "objc2"] }
+objc2-service-management = "0.3"
 
 [profile.release]
 lto = true

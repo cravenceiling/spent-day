@@ -19,11 +19,7 @@ impl Activation {
     }
 }
 
-pub fn claim_instance(
-    demo: bool,
-    show: bool,
-    on_activate: OnActivate,
-) -> Instance {
+pub fn claim_instance(demo: bool, show: bool, on_activate: OnActivate) -> Instance {
     let token = std::env::var("XDG_ACTIVATION_TOKEN")
         .ok()
         .filter(|token| !token.is_empty())
@@ -36,12 +32,7 @@ pub fn claim_instance(
     })
 }
 
-fn claim(
-    demo: bool,
-    show: bool,
-    token: String,
-    on_activate: OnActivate,
-) -> zbus::Result<Instance> {
+fn claim(demo: bool, show: bool, token: String, on_activate: OnActivate) -> zbus::Result<Instance> {
     let name = if demo {
         "day.spent.SpentDay.Demo"
     } else {

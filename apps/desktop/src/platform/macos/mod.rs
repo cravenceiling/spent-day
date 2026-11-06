@@ -1,79 +1,184 @@
-//! The platform seam on macOS. Stubs until unit 4.
+mod browser;
+mod collector;
+mod front;
+mod native;
+mod presence;
+mod quit;
+mod recorder;
+pub mod status_item;
 
 use super::{Instance, OnActivate, OnFatal, Pref};
-use spentday_core::SpentDay;
-use std::path::PathBuf;
-use std::sync::Arc;
+use objc2::rc::autoreleasepool;
+use objc2_app_kit::NSWorkspace;
+use objc2_foundation::{
+    NSBundle, NSFileManager, NSSearchPathDirectory, NSSearchPathDomainMask, NSString,
+    NSUserDefaults,
+};
+use objc2_service_management::{SMAppService, SMAppServiceStatus};
+use spentday_core::{Platform, SpentDay};
+use std::{
+    fs,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-pub const PLATFORM: spentday_core::Platform = spentday_core::Platform::Macos;
-/// Fills "this Mac" in user-facing text.
+pub use collector::Tracking;
+pub const PLATFORM: Platform = Platform::Macos;
 pub const DEVICE_NOUN: &str = "Mac";
 
-/// `SPENTDAY_DB` verbatim, else `<data>/spentday.db` in a folder made and kept 0700. Refuses
-/// a non-UTF-8 path. The stub never touches the real data folder.
 pub fn db_path() -> Result<String, String> {
-    std::env::var("SPENTDAY_DB").map_err(|_| "Spent Day can't find its data folder yet".to_string())
+    resolve_db_path(std::env::var_os("SPENTDAY_DB"), || {
+        autoreleasepool(|_| {
+            let manager = NSFileManager::defaultManager();
+            let urls = manager.URLsForDirectory_inDomains(
+                NSSearchPathDirectory::ApplicationSupportDirectory,
+                NSSearchPathDomainMask::UserDomainMask,
+            );
+            let path = urls
+                .firstObject()
+                .and_then(|url| url.path())
+                .ok_or("Couldn't find Application Support.")?;
+            let id = NSBundle::mainBundle()
+                .bundleIdentifier()
+                .map(|id| id.to_string());
+            Ok(PathBuf::from(path.to_string()).join(folder_name(id.as_deref())))
+        })
+    })
 }
-
-/// Off the event loop.
+fn folder_name(bundle: Option<&str>) -> &'static str {
+    if bundle == Some("day.spent.SpentDay.dev") {
+        "SpentDay Dev"
+    } else {
+        "SpentDay"
+    }
+}
+fn resolve_db_path(
+    override_path: Option<std::ffi::OsString>,
+    folder: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<String, String> {
+    let path = if let Some(path) = override_path {
+        PathBuf::from(path)
+    } else {
+        let folder = folder()?;
+        make_private_folder(&folder)?;
+        folder.join("spentday.db")
+    };
+    path.into_os_string()
+        .into_string()
+        .map_err(|_| "The database path isn't valid UTF-8.".into())
+}
+fn make_private_folder(folder: &Path) -> Result<(), String> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(folder)
+        .and_then(|_| fs::set_permissions(folder, fs::Permissions::from_mode(0o700)))
+        .map_err(|error| {
+            format!(
+                "Spent Day couldn't make its folder {} private. {error}",
+                folder.display()
+            )
+        })
+}
+// NSHost preserves the existing localized device name.
+#[allow(deprecated)]
 pub fn device_name() -> String {
-    DEVICE_NOUN.to_string()
+    use objc2_foundation::NSHost;
+    autoreleasepool(|_| {
+        NSHost::currentHost()
+            .localizedName()
+            .map_or_else(|| "Mac".into(), |name| name.to_string())
+    })
 }
-
-pub struct Tracking {}
-
-/// Starts collection on its own threads.
 pub fn start_tracking(core: Arc<SpentDay>, on_fatal: OnFatal) -> Tracking {
-    let _ = (core, on_fatal);
-    Tracking {}
+    collector::start(core, on_fatal)
 }
-
-impl Tracking {
-    /// Flushes the open span; bounded at 3 s.
-    pub fn stop(self) {}
+pub fn icon_path(_app_key: &str, app_ids: &[String]) -> Option<PathBuf> {
+    autoreleasepool(|_| {
+        app_ids.iter().find_map(|id| {
+            NSWorkspace::sharedWorkspace()
+                .URLForApplicationWithBundleIdentifier(&NSString::from_str(id))?
+                .path()
+                .map(|p| PathBuf::from(p.to_string()))
+        })
+    })
 }
-
-/// The installed app's icon file (`.app` bundle or `.desktop` file); the first installed id wins.
-pub fn icon_path(app_key: &str, app_ids: &[String]) -> Option<PathBuf> {
-    let _ = (app_key, app_ids);
-    None
+pub struct InstanceGuard;
+pub fn claim_instance(_demo: bool, _show: bool, _on_activate: OnActivate) -> Instance {
+    Instance::Primary(InstanceGuard)
 }
-
-pub struct InstanceGuard {}
-
-/// macOS: always Primary; LaunchServices and `on_reopen` cover second launches.
-pub fn claim_instance(demo: bool, show: bool, on_activate: OnActivate) -> Instance {
-    let _ = (demo, show, on_activate);
-    Instance::Primary(InstanceGuard {})
+impl Pref {
+    fn key(self) -> &'static str {
+        match self {
+            Self::OnboardingDone => "onboardingDone",
+            Self::RecordSafariSites => "recordSafariSites",
+        }
+    }
 }
-
-/// `None`: the platform has no such setting, so its row or sheet is hidden.
 pub fn read_pref(p: Pref) -> Option<bool> {
-    let _ = p;
-    None
+    Some(autoreleasepool(|_| {
+        NSUserDefaults::standardUserDefaults().boolForKey(&NSString::from_str(p.key()))
+    }))
 }
-
 pub fn write_pref(p: Pref, on: bool) {
-    let _ = (p, on);
+    autoreleasepool(|_| {
+        NSUserDefaults::standardUserDefaults().setBool_forKey(on, &NSString::from_str(p.key()))
+    });
 }
-
-/// `None`: no launch-at-login toggle.
 pub fn autostart() -> Option<bool> {
-    None
+    Some(unsafe {
+        matches!(
+            SMAppService::mainAppService().status(),
+            SMAppServiceStatus::Enabled | SMAppServiceStatus::RequiresApproval
+        )
+    })
 }
-
-/// SMAppService. `Ok(Some(note))` asks the user to allow it in System Settings.
 pub fn set_autostart(on: bool) -> Result<Option<String>, String> {
-    let _ = on;
-    Err("not supported".into())
+    unsafe {
+        let service = SMAppService::mainAppService();
+        let registered = matches!(
+            service.status(),
+            SMAppServiceStatus::Enabled | SMAppServiceStatus::RequiresApproval
+        );
+        if on != registered {
+            (if on {
+                service.registerAndReturnError()
+            } else {
+                service.unregisterAndReturnError()
+            })
+            .map_err(|e| {
+                format!(
+                    "macOS didn't accept the change: {}",
+                    e.localizedDescription()
+                )
+            })?;
+        }
+        Ok(
+            (service.status() == SMAppServiceStatus::RequiresApproval).then(|| {
+                "Allow Spent Day in System Settings > General > Login Items to finish.".into()
+            }),
+        )
+    }
 }
-
-/// Main thread, after the loop starts. Installs the status item; `on_click` gets its button rect in top-left global points.
 pub fn menu_bar(on_click: Box<dyn Fn([f64; 4])>) {
-    let _ = on_click;
+    status_item::install(on_click);
+}
+pub fn install_quit_handler(quit: Box<dyn Fn()>) {
+    quit::install(quit);
 }
 
-/// An `aevt/quit` handler, so logout and AppleScript quit take the quit path.
-pub fn install_quit_handler(quit: Box<dyn Fn()>) {
-    let _ = quit;
+pub(super) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
 }
+#[cfg(test)]
+#[path = "path_tests.rs"]
+mod path_tests;
+#[cfg(test)]
+#[path = "recorder_tests.rs"]
+mod recorder_tests;
+
+#[cfg(test)]
+mod test_support;
