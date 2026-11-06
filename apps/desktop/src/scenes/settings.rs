@@ -5,7 +5,6 @@ use crate::ui::dash::{Dash, Overlay};
 use crate::ui::fatal::Fatal;
 use crate::ui::panel::{Panel, PanelRow};
 use crate::ui::settings::{Autostart, Prefs};
-use jiff::Timestamp;
 use rune::TextEdit;
 use spentday_core::{SyncConfig, SyncReport};
 
@@ -34,6 +33,11 @@ pub fn joining(s: &mut Dash) {
 }
 pub fn on(s: &mut Dash) {
     open(s);
+    let at = jiff::civil::date(2026, 10, 28)
+        .at(14, 32, 0, 0)
+        .to_zoned(s.shared.tz.clone())
+        .unwrap()
+        .timestamp();
     s.settings.apply_config(Some(SyncConfig {
         server_url: "https://sync.example.com".into(),
         sync_code: CODE.into(),
@@ -42,12 +46,12 @@ pub fn on(s: &mut Dash) {
         running: false,
         configured: true,
         last: Some(LastSync::Ok {
-            at: Timestamp::now(),
+            at,
             report: SyncReport {
                 pushed_spans: 18,
                 pulled_spans: 342,
                 skipped_batches: 0,
-                finished_at_ms: Timestamp::now().as_millisecond(),
+                finished_at_ms: at.as_millisecond(),
             },
         }),
     };
@@ -62,7 +66,10 @@ pub fn running(s: &mut Dash) {
 }
 pub fn failed(s: &mut Dash) {
     on(s);
-    s.settings.sync.last = Some(LastSync::Failed { at: Timestamp::now(),
+    let Some(LastSync::Ok { at, .. }) = s.settings.sync.last else {
+        unreachable!()
+    };
+    s.settings.sync.last = Some(LastSync::Failed { at,
         message: "Couldn't reach the sync server or read its answer. Check the address and your connection.".into() });
 }
 pub fn skipped(s: &mut Dash) {
@@ -81,15 +88,31 @@ pub fn general_mac(s: &mut Dash) {
 }
 
 pub fn panel(s: &mut Panel) {
+    let detail = crate::demo::Demo::with_timezone(s.shared.tz.clone()).day(crate::day::query(
+        jiff::civil::date(2026, 10, 28),
+        &s.shared.tz,
+    ));
+    s.palette = crate::palette::Palette::build(&detail, &s.shared.icons, true);
     s.total_ms = 49_800_000;
     s.sync.configured = true;
     s.rows = [
-        ("Xcode", "com.apple.dt.Xcode", 21_900_000),
-        ("Google Chrome", "com.google.Chrome", 7_200_000),
-        ("Terminal", "com.apple.Terminal", 3_600_000),
+        (
+            "Xcode",
+            "com.apple.dt.Xcode",
+            "com.apple.dt.Xcode",
+            21_900_000,
+        ),
+        ("Google Chrome", "chrome", "com.google.Chrome", 7_200_000),
+        (
+            "Terminal",
+            "com.apple.Terminal",
+            "com.apple.Terminal",
+            3_600_000,
+        ),
     ]
     .into_iter()
-    .map(|(name, id, total_ms)| PanelRow {
+    .map(|(name, key, id, total_ms)| PanelRow {
+        key: format!("app:{key}"),
         name: name.into(),
         app_ids: vec![id.into()],
         total_ms,
