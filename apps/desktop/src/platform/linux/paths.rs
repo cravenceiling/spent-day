@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
 
-/// `$SPENTDAY_DB`, else `$XDG_DATA_HOME/spentday/spentday.db`. The default folder is Spent Day's
-/// own, so it is made private (`0700`), since the database holds the sync code. A folder named by
-/// `$SPENTDAY_DB` is the user's and is left alone. The core creates any missing folder `0700` and
-/// keeps the database files `0600` either way.
-pub fn db_path() -> PathBuf {
+pub fn db_path() -> Result<String, String> {
     if let Some(path) = std::env::var_os("SPENTDAY_DB") {
-        return PathBuf::from(path);
+        return utf8(Path::new(&path)).map_err(|e| e.to_string());
     }
-    let dir = gtk::glib::user_data_dir().join("spentday");
-    if let Err(e) = private_dir(&dir) {
-        eprintln!("spentday: cannot make {} private: {e}", dir.display());
-    }
-    dir.join("spentday.db")
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .filter(|path| !path.is_empty() && Path::new(path).is_absolute())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or("Cannot find the data folder. Set XDG_DATA_HOME or SPENTDAY_DB.")?;
+    let dir = data.join("spentday");
+    private_dir(&dir)
+        .map_err(|e| format!("couldn't make its folder {} private: {e}", dir.display()))?;
+    utf8(&dir.join("spentday.db")).map_err(|e| e.to_string())
 }
 
 /// The core takes the database path as a string. A lossy conversion could name another file,
@@ -49,7 +49,10 @@ mod tests {
         let bad = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/not-utf8-\xff.db"));
         let e = utf8(bad).unwrap_err();
         assert!(e.to_string().contains("not valid UTF-8"), "{e}");
-        assert_eq!(utf8(Path::new("/tmp/caf\u{e9}.db")).unwrap(), "/tmp/caf\u{e9}.db");
+        assert_eq!(
+            utf8(Path::new("/tmp/caf\u{e9}.db")).unwrap(),
+            "/tmp/caf\u{e9}.db"
+        );
     }
 
     #[test]

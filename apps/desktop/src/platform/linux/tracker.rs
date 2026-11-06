@@ -1,10 +1,10 @@
 //! Polls the focused window and feeds heartbeats to the core.
 
-use crate::collector::{Collector, Kind, Window};
-use crate::desktop::Entries;
-use crate::idle::{self, Idle};
-use crate::media::{Presence, Snapshot, State};
-use crate::session;
+use crate::platform::linux::collector::{Collector, Kind, Window};
+use crate::platform::linux::desktop::Entries;
+use crate::platform::linux::idle::{self, Idle};
+use crate::platform::linux::media::{Presence, Snapshot, State};
+use crate::platform::linux::session;
 use spentday_core::{Activity, SpentDay};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -44,9 +44,18 @@ impl Tracker {
                 let collector = open_collector();
                 let _ = started.send(collector.as_ref().map(|_| ()).map_err(Clone::clone));
                 let collector = collector.ok().flatten();
-                let idle = idle::open(collector.as_ref().map(|(kind, _)| *kind), Duration::from_millis(away_after_ms));
+                let idle = idle::open(
+                    collector.as_ref().map(|(kind, _)| *kind),
+                    Duration::from_millis(away_after_ms),
+                );
                 let feed = Feed::new(spentday, away_after_ms);
-                track(rx, feed, collector.map(|(_, collector)| collector), idle, Presence::spawn());
+                track(
+                    rx,
+                    feed,
+                    collector.map(|(_, collector)| collector),
+                    idle,
+                    Presence::spawn(),
+                );
             })
             .expect("spawn tracker thread");
         (Tracker { events, thread }, started_rx)
@@ -60,7 +69,9 @@ impl Tracker {
         let deadline = Instant::now() + STOP_WAIT;
         while !self.thread.is_finished() {
             if Instant::now() >= deadline {
-                eprintln!("spentday: the tracker did not stop in time; the open span ends at its last heartbeat");
+                eprintln!(
+                    "spentday: the tracker did not stop in time; the open span ends at its last heartbeat"
+                );
                 return;
             }
             thread::sleep(Duration::from_millis(20));
@@ -71,7 +82,13 @@ impl Tracker {
 
 /// Polls the focused window and idle time every `POLL` until `Quit`. Presence checks run on
 /// their own thread, so this loop only hands them the focused app and reads what they found.
-fn track(events: Receiver<Event>, mut feed: Feed, mut collector: Option<Box<dyn Collector>>, mut idle: Box<dyn Idle>, presence: Presence) {
+fn track(
+    events: Receiver<Event>,
+    mut feed: Feed,
+    mut collector: Option<Box<dyn Collector>>,
+    mut idle: Box<dyn Idle>,
+    presence: Presence,
+) {
     let mut paused = Paused::default();
     let mut last_error = None;
     loop {
@@ -85,7 +102,9 @@ fn track(events: Receiver<Event>, mut feed: Feed, mut collector: Option<Box<dyn 
             feed.pause(now_ms());
             continue;
         }
-        let Some(collector) = collector.as_mut() else { continue };
+        let Some(collector) = collector.as_mut() else {
+            continue;
+        };
         let window = collector.active().unwrap_or_else(|e| {
             if last_error.as_ref() != Some(&e) {
                 eprintln!("spentday: {}: {e}", collector.name());
@@ -114,14 +133,31 @@ struct Feed {
 
 impl Feed {
     fn new(spentday: Arc<SpentDay>, away_after_ms: u64) -> Feed {
-        Feed { spentday, entries: Entries::new(), away_after_ms, last: None, away: false, present_at: None }
+        Feed {
+            spentday,
+            entries: Entries::new(),
+            away_after_ms,
+            last: None,
+            away: false,
+            present_at: None,
+        }
     }
 
     /// `idle_ms` is `None` when nothing can tell, and the user then counts as present.
     /// `presence` is the latest snapshot, taken idle or not, so a video that ends before the
     /// idle threshold still counts up to its end.
-    fn poll(&mut self, now: i64, window: Option<Window>, idle_ms: Option<u64>, presence: Option<Snapshot>) {
-        if let Some(Snapshot { state: State::Present, observed_at_ms }) = presence {
+    fn poll(
+        &mut self,
+        now: i64,
+        window: Option<Window>,
+        idle_ms: Option<u64>,
+        presence: Option<Snapshot>,
+    ) {
+        if let Some(Snapshot {
+            state: State::Present,
+            observed_at_ms,
+        }) = presence
+        {
             self.present_at = Some(observed_at_ms);
         }
         let kept_present = self.present_at.is_some_and(|at| now <= at + PRESENT_TTL_MS);
@@ -174,7 +210,10 @@ impl Paused {
 
 /// `SPENTDAY_AWAY_AFTER_SECS` shortens the idle threshold, so checks need not wait 3 minutes.
 fn away_after_ms() -> u64 {
-    std::env::var("SPENTDAY_AWAY_AFTER_SECS").ok().and_then(|s| s.parse::<u64>().ok()).map_or(AWAY_AFTER_MS, |s| s * 1000)
+    std::env::var("SPENTDAY_AWAY_AFTER_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(AWAY_AFTER_MS, |s| s * 1000)
 }
 
 type Opened = (Kind, Box<dyn Collector>);
@@ -184,7 +223,9 @@ type Opened = (Kind, Box<dyn Collector>);
 fn open_collector() -> Result<Option<Opened>, String> {
     let Some(kind) = Kind::detect() else {
         // Sites from the extension only count while a browser window is known to be focused.
-        eprintln!("spentday: no supported display server, so nothing is recorded, sites included. Set SPENTDAY_COLLECTOR to x11, sway, hyprland, gnome or kde if detection is wrong.");
+        eprintln!(
+            "spentday: no supported display server, so nothing is recorded, sites included. Set SPENTDAY_COLLECTOR to x11, sway, hyprland, gnome or kde if detection is wrong."
+        );
         return Ok(None);
     };
     match kind.open() {
@@ -193,7 +234,9 @@ fn open_collector() -> Result<Option<Opened>, String> {
             Ok(Some((kind, collector)))
         }
         Err(e) => {
-            eprintln!("spentday: the {kind:?} collector failed to start, so nothing is recorded: {e}");
+            eprintln!(
+                "spentday: the {kind:?} collector failed to start, so nothing is recorded: {e}"
+            );
             Err(e)
         }
     }
@@ -206,21 +249,28 @@ fn log(result: Result<(), spentday_core::SpentDayError>) {
 }
 
 pub fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::{self, Media};
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use crate::platform::linux::media::{self, Media};
     use spentday_core::Platform;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     const T0: i64 = 1_700_000_000_000;
 
     fn feed() -> (tempfile::TempDir, Arc<SpentDay>, Feed) {
         let dir = tempfile::tempdir().unwrap();
-        let spentday = SpentDay::open(dir.path().join("m.db").display().to_string(), "box".into(), Platform::Linux).unwrap();
+        let spentday = SpentDay::open(
+            dir.path().join("m.db").display().to_string(),
+            "box".into(),
+            Platform::Linux,
+        )
+        .unwrap();
         (dir, spentday.clone(), Feed::new(spentday, AWAY_AFTER_MS))
     }
 
@@ -228,11 +278,16 @@ mod tests {
     /// and finding `state_at` the second it checked.
     fn sampled(s: i64, state_at: impl Fn(i64) -> State) -> Option<Snapshot> {
         let at = s - s % 5;
-        Some(Snapshot { state: state_at(at), observed_at_ms: T0 + at * 1000 })
+        Some(Snapshot {
+            state: state_at(at),
+            observed_at_ms: T0 + at * 1000,
+        })
     }
 
     fn window(app_id: &str) -> Option<Window> {
-        Some(Window { app_id: app_id.into() })
+        Some(Window {
+            app_id: app_id.into(),
+        })
     }
 
     /// `(start s, end s, app id)` relative to `T0`, oldest first.
@@ -253,7 +308,12 @@ mod tests {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=300 {
             let idle_ms = if s <= 60 { 0 } else { (s - 60) as u64 * 1000 };
-            feed.poll(T0 + s * 1000, window("editor"), Some(idle_ms), sampled(s, |_| State::Absent));
+            feed.poll(
+                T0 + s * 1000,
+                window("editor"),
+                Some(idle_ms),
+                sampled(s, |_| State::Absent),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 60, "editor".into())]);
     }
@@ -262,10 +322,20 @@ mod tests {
     fn input_after_being_away_starts_a_new_span() {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=250 {
-            feed.poll(T0 + s * 1000, window("editor"), Some(s as u64 * 1000), sampled(s, |_| State::Absent));
+            feed.poll(
+                T0 + s * 1000,
+                window("editor"),
+                Some(s as u64 * 1000),
+                sampled(s, |_| State::Absent),
+            );
         }
         for s in 400..=420 {
-            feed.poll(T0 + s * 1000, window("editor"), Some(0), sampled(s, |_| State::Absent));
+            feed.poll(
+                T0 + s * 1000,
+                window("editor"),
+                Some(0),
+                sampled(s, |_| State::Absent),
+            );
         }
         assert_eq!(spans(&spentday), vec![(400, 420, "editor".into())]);
     }
@@ -273,9 +343,20 @@ mod tests {
     #[test]
     fn media_in_the_focused_app_keeps_an_idle_user_present_until_it_stops() {
         let (_dir, spentday, mut feed) = feed();
-        let playing = |at| if at <= 500 { State::Present } else { State::Absent };
+        let playing = |at| {
+            if at <= 500 {
+                State::Present
+            } else {
+                State::Absent
+            }
+        };
         for s in 0..=600 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, playing));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, playing),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 500, "totem".into())]);
     }
@@ -283,9 +364,20 @@ mod tests {
     #[test]
     fn a_video_that_ends_before_the_threshold_keeps_its_time() {
         let (_dir, spentday, mut feed) = feed();
-        let playing = |at| if at <= 120 { State::Present } else { State::Absent };
+        let playing = |at| {
+            if at <= 120 {
+                State::Present
+            } else {
+                State::Absent
+            }
+        };
         for s in 0..=300 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, playing));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, playing),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 120, "totem".into())]);
     }
@@ -293,9 +385,20 @@ mod tests {
     #[test]
     fn a_failed_media_check_keeps_what_the_last_check_found() {
         let (_dir, spentday, mut feed) = feed();
-        let failed_once = |at| if at == 305 { State::Unknown } else { State::Present };
+        let failed_once = |at| {
+            if at == 305 {
+                State::Unknown
+            } else {
+                State::Present
+            }
+        };
         for s in 0..=600 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, failed_once));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, failed_once),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 600, "totem".into())]);
     }
@@ -303,9 +406,20 @@ mod tests {
     #[test]
     fn one_check_that_finds_nothing_between_ones_that_find_media_loses_no_time() {
         let (_dir, spentday, mut feed) = feed();
-        let between_tracks = |at| if at == 305 { State::Absent } else { State::Present };
+        let between_tracks = |at| {
+            if at == 305 {
+                State::Absent
+            } else {
+                State::Present
+            }
+        };
         for s in 0..=400 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, between_tracks));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, between_tracks),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 400, "totem".into())]);
     }
@@ -313,9 +427,20 @@ mod tests {
     #[test]
     fn checks_that_cannot_tell_keep_the_user_present_for_30_s_after_the_last_that_found_media() {
         let (_dir, spentday, mut feed) = feed();
-        let then_unknown = |at| if at <= 300 { State::Present } else { State::Unknown };
+        let then_unknown = |at| {
+            if at <= 300 {
+                State::Present
+            } else {
+                State::Unknown
+            }
+        };
         for s in 0..=600 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, then_unknown));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, then_unknown),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 300, "totem".into())]);
     }
@@ -324,7 +449,12 @@ mod tests {
     fn a_stalled_presence_thread_keeps_the_user_present_for_30_s_after_its_last_check() {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=600 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s.min(300), |_| State::Present));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s.min(300), |_| State::Present),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 300, "totem".into())]);
     }
@@ -332,18 +462,37 @@ mod tests {
     #[test]
     fn media_that_plays_again_brings_an_away_user_back() {
         let (_dir, spentday, mut feed) = feed();
-        let playing = |at| if (300..400).contains(&at) { State::Absent } else { State::Present };
+        let playing = |at| {
+            if (300..400).contains(&at) {
+                State::Absent
+            } else {
+                State::Present
+            }
+        };
         for s in 0..=600 {
-            feed.poll(T0 + s * 1000, window("totem"), Some(s as u64 * 1000), sampled(s, playing));
+            feed.poll(
+                T0 + s * 1000,
+                window("totem"),
+                Some(s as u64 * 1000),
+                sampled(s, playing),
+            );
         }
-        assert_eq!(spans(&spentday), vec![(0, 295, "totem".into()), (400, 600, "totem".into())]);
+        assert_eq!(
+            spans(&spentday),
+            vec![(0, 295, "totem".into()), (400, 600, "totem".into())]
+        );
     }
 
     #[test]
     fn without_an_idle_source_the_user_stays_present() {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=400 {
-            feed.poll(T0 + s * 1000, window("editor"), None, sampled(s, |_| State::Absent));
+            feed.poll(
+                T0 + s * 1000,
+                window("editor"),
+                None,
+                sampled(s, |_| State::Absent),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 400, "editor".into())]);
     }
@@ -359,8 +508,14 @@ mod tests {
 
         fn active(&mut self) -> Result<Option<Window>, String> {
             self.0 += 1;
-            let app_id = if self.0.is_multiple_of(2) { "spentdayslow" } else { "spentdayslow-b" };
-            Ok(Some(Window { app_id: app_id.into() }))
+            let app_id = if self.0.is_multiple_of(2) {
+                "spentdayslow"
+            } else {
+                "spentdayslow-b"
+            };
+            Ok(Some(Window {
+                app_id: app_id.into(),
+            }))
         }
     }
 
@@ -379,7 +534,7 @@ mod tests {
     impl SlowPlayer {
         #[zbus(property)]
         fn desktop_entry(&self) -> String {
-            thread::sleep(crate::dbus::TIMEOUT * 2);
+            thread::sleep(crate::platform::linux::dbus::TIMEOUT * 2);
             "spentdayslow".into()
         }
     }
@@ -390,7 +545,7 @@ mod tests {
     impl SlowStatus {
         #[zbus(property)]
         fn playback_status(&self) -> String {
-            thread::sleep(crate::dbus::TIMEOUT * 2);
+            thread::sleep(crate::platform::linux::dbus::TIMEOUT * 2);
             "Playing".into()
         }
     }
@@ -414,16 +569,36 @@ mod tests {
             .collect();
         let (_dir, spentday, feed) = feed();
         let (events, rx) = mpsc::channel();
-        let tracking = thread::spawn(move || track(rx, feed, Some(Box::new(EveryPollNew(0))), Box::new(Active), Presence::spawn()));
+        let tracking = thread::spawn(move || {
+            track(
+                rx,
+                feed,
+                Some(Box::new(EveryPollNew(0))),
+                Box::new(Active),
+                Presence::spawn(),
+            )
+        });
         thread::sleep(Duration::from_secs(12));
         events.send(Event::Quit).unwrap();
         tracking.join().unwrap();
 
-        let mut heartbeats: Vec<i64> = spentday.recent_spans(100).unwrap().into_iter().map(|s| s.start_ms).collect();
+        let mut heartbeats: Vec<i64> = spentday
+            .recent_spans(100)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.start_ms)
+            .collect();
         heartbeats.sort();
         let gaps: Vec<i64> = heartbeats.windows(2).map(|w| w[1] - w[0]).collect();
-        assert!(heartbeats.len() >= 10, "{} heartbeats in 12 s: {gaps:?}", heartbeats.len());
-        assert!(gaps.iter().all(|gap| *gap <= 1_500), "heartbeat gaps in ms: {gaps:?}");
+        assert!(
+            heartbeats.len() >= 10,
+            "{} heartbeats in 12 s: {gaps:?}",
+            heartbeats.len()
+        );
+        assert!(
+            gaps.iter().all(|gap| *gap <= 1_500),
+            "heartbeat gaps in ms: {gaps:?}"
+        );
     }
 
     /// GNOME's session manager, inhibiting idle until a call fails.
@@ -435,7 +610,11 @@ mod tests {
     impl FlakyInhibitor {
         fn is_inhibited(&mut self, _flags: u32) -> zbus::fdo::Result<bool> {
             self.calls += 1;
-            if self.calls == 1 { Ok(true) } else { Err(zbus::fdo::Error::Failed("busy".into())) }
+            if self.calls == 1 {
+                Ok(true)
+            } else {
+                Err(zbus::fdo::Error::Failed("busy".into()))
+            }
         }
     }
 
@@ -451,13 +630,21 @@ mod tests {
             .build()
             .unwrap();
         let mut media = Media::new();
-        let states = [media.sweep(None, Duration::from_secs(2)), media.sweep(None, Duration::from_secs(2))];
+        let states = [
+            media.sweep(None, Duration::from_secs(2)),
+            media.sweep(None, Duration::from_secs(2)),
+        ];
         assert_eq!(states, [State::Present, State::Unknown]);
 
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=320 {
             let state = |at| if at < 305 { states[0] } else { states[1] };
-            feed.poll(T0 + s * 1000, window("editor"), Some(s as u64 * 1000), sampled(s, state));
+            feed.poll(
+                T0 + s * 1000,
+                window("editor"),
+                Some(s as u64 * 1000),
+                sampled(s, state),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 320, "editor".into())]);
     }
@@ -469,7 +656,12 @@ mod tests {
     impl Video {
         #[zbus(property)]
         fn playback_status(&self) -> String {
-            if self.0.load(Ordering::SeqCst) { "Playing" } else { "Paused" }.into()
+            if self.0.load(Ordering::SeqCst) {
+                "Playing"
+            } else {
+                "Paused"
+            }
+            .into()
         }
     }
 
@@ -494,7 +686,10 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        let video = media::App { app_id: "spentdayvideo", desktop_id: None };
+        let video = media::App {
+            app_id: "spentdayvideo",
+            desktop_id: None,
+        };
         let mut media = Media::new();
         let mut states = vec![media.sweep(Some(&video), Duration::from_secs(2))];
         playing.store(false, Ordering::SeqCst);
@@ -504,7 +699,12 @@ mod tests {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=600 {
             let state = |at| if at <= 300 { states[0] } else { states[1] };
-            feed.poll(T0 + s * 1000, window("spentdayvideo"), Some(s as u64 * 1000), sampled(s, state));
+            feed.poll(
+                T0 + s * 1000,
+                window("spentdayvideo"),
+                Some(s as u64 * 1000),
+                sampled(s, state),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 300, "spentdayvideo".into())]);
     }
@@ -519,8 +719,14 @@ mod tests {
     impl NamedByEntry {
         #[zbus(property)]
         fn desktop_entry(&self) -> String {
-            if self.answers.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_err() {
-                thread::sleep(crate::dbus::TIMEOUT * 2);
+            if self
+                .answers
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                    left.checked_sub(1)
+                })
+                .is_err()
+            {
+                thread::sleep(crate::platform::linux::dbus::TIMEOUT * 2);
             }
             "spentday-chrome".into()
         }
@@ -544,17 +750,28 @@ mod tests {
                 .unwrap()
                 .name("org.mpris.MediaPlayer2.spentdaychromium.instance7")
                 .unwrap()
-                .serve_at("/org/mpris/MediaPlayer2", NamedByEntry { answers: AtomicU32::new(answers) })
+                .serve_at(
+                    "/org/mpris/MediaPlayer2",
+                    NamedByEntry {
+                        answers: AtomicU32::new(answers),
+                    },
+                )
                 .unwrap()
                 .serve_at("/org/mpris/MediaPlayer2", Playing)
                 .unwrap()
                 .build()
                 .unwrap()
         };
-        let chrome = media::App { app_id: "spentday-chrome", desktop_id: None };
+        let chrome = media::App {
+            app_id: "spentday-chrome",
+            desktop_id: None,
+        };
         let mut media = Media::new();
         let first = player(1);
-        let mut states = vec![media.sweep(Some(&chrome), Duration::from_secs(2)), media.sweep(Some(&chrome), Duration::from_secs(2))];
+        let mut states = vec![
+            media.sweep(Some(&chrome), Duration::from_secs(2)),
+            media.sweep(Some(&chrome), Duration::from_secs(2)),
+        ];
         drop(first);
         let _restarted = player(0);
         thread::sleep(Duration::from_millis(300));
@@ -564,7 +781,12 @@ mod tests {
         let (_dir, spentday, mut feed) = feed();
         for s in 0..=320 {
             let state = |at| if at < 305 { State::Present } else { states[2] };
-            feed.poll(T0 + s * 1000, window("spentday-chrome"), Some(s as u64 * 1000), sampled(s, state));
+            feed.poll(
+                T0 + s * 1000,
+                window("spentday-chrome"),
+                Some(s as u64 * 1000),
+                sampled(s, state),
+            );
         }
         assert_eq!(spans(&spentday), vec![(0, 320, "spentday-chrome".into())]);
     }

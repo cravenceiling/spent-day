@@ -1,18 +1,18 @@
 #!/bin/sh
 # Builds and checks the Linux app and the browser extension in the dev container.
 #
-#   apps/linux/verify.sh          everything that can run
-#   apps/linux/verify.sh unit     unit tests and build only
+#   apps/desktop/linux/verify.sh          everything that can run
+#   apps/desktop/linux/verify.sh unit     unit tests and build only
 #
-# On the host it builds apps/linux/Dockerfile.dev and reruns itself inside.
+# On the host it builds apps/desktop/linux/Dockerfile.dev and reruns itself inside.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
-root="$(cd "$here/../.." && pwd)"
+root="$(cd "$here/../../.." && pwd)"
 
 if [ ! -e /.spentday-dev ]; then
   docker build -q -t spentday-linux-dev -f "$here/Dockerfile.dev" "$here" >/dev/null
   exec docker run --rm --name "spentday-verify-$(date +%s)-$$" --hostname spentday-linux -v "$root":/src -v spentday-cargo:/opt/cargo/registry -v spentday-target:/target \
-    -e CARGO_TARGET_DIR=/target ${SPENTDAY_DOCKER_ARGS:-} spentday-linux-dev /src/apps/linux/verify.sh "$@"
+    -e CARGO_TARGET_DIR=/target ${SPENTDAY_DOCKER_ARGS:-} spentday-linux-dev /src/apps/desktop/linux/verify.sh "$@"
 fi
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
   exec dbus-run-session -- "$0" "$@"
@@ -20,21 +20,23 @@ fi
 
 step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
-target="${CARGO_TARGET_DIR:-$root/target}"
+target="${CARGO_TARGET_DIR:-$here/../target}"
+export CARGO_TARGET_DIR="$target"
 spentday="$target/debug/spentday"
 cli="$target/debug/spentday-cli"
-shots="$here/screenshots"
-export GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 LANG=C.UTF-8
+shots="$here/../screenshots/linux"
+export LANG=C.UTF-8
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.json}"
 
 step "unit tests"
-(cd "$here" && cargo test --quiet) || fail "unit tests"
+(cd "$here/.." && cargo test --quiet --locked) || fail "unit tests"
 step "core privacy tests (APFS refuses the non-UTF-8 folder name one of them needs)"
-(cd "$root" && cargo test --quiet -p spentday-core --test privacy) || fail "core privacy tests"
+(cd "$root" && cargo test --quiet --locked -p spentday-core --test privacy) || fail "core privacy tests"
 step "extension tests"
 node --test "$root"/extension/test/*.test.mjs || fail "extension tests"
 step "build"
-(cd "$here" && cargo build --quiet)
-(cd "$root" && cargo build --quiet -p spentday-cli)
+(cd "$here/.." && cargo build --quiet --locked)
+(cd "$root" && cargo build --quiet --locked -p spentday-cli)
 ls -l "$spentday" "$cli"
 [ "${1:-}" = unit ] && exit 0
 
@@ -49,7 +51,7 @@ mkdir -p "$shots"
 
 step "integration tests against the session bus and the X server"
 # They share one session bus, so one test's players must not show up in another's checks.
-(cd "$here" && GTK_A11Y=test cargo test --quiet -- --ignored --test-threads=1) || fail "integration tests"
+(cd "$here/.." && cargo test --quiet --locked -- --ignored --test-threads=1) || fail "integration tests"
 
 # Starts `spentday --background` on database $1 and waits until it tracks.
 start_spentday() {
@@ -97,13 +99,13 @@ not_on_disk() {
 }
 
 step "demo treemap screenshots"
-"$here/snapshot.sh"
+"$here/../snapshot.sh"
 
-step "a database that will not open shows a dialog, then Spent Day exits"
+step "a database that will not open shows a fatal window, then Spent Day exits"
 printf 'not a database' > /tmp/bad.db
 SPENTDAY_DB=/tmp/bad.db "$spentday" --background >/tmp/bad.log 2>&1 &
 bad_pid=$!
-bad_window=$(timeout 10 xdotool search --sync --onlyvisible --pid "$bad_pid" | head -1) || fail "no dialog for a bad database"
+bad_window=$(timeout 10 xdotool search --sync --onlyvisible --pid "$bad_pid" | head -1) || fail "no fatal window for a bad database"
 sleep 1
 xdotool windowactivate --sync "$bad_window" key Escape
 status=0; wait "$bad_pid" || status=$?
@@ -295,7 +297,7 @@ holder_pid=$!
 for _ in $(seq 50); do grep -q held /tmp/holder.log && break; sleep 0.2; done
 SPENTDAY_COLLECTOR=gnome SPENTDAY_DB=/tmp/held.db "$spentday" --background >/tmp/held.log 2>&1 &
 held_pid=$!
-held_window=$(timeout 10 xdotool search --sync --onlyvisible --pid "$held_pid" | head -1) || fail "no dialog when the focus name is held"
+held_window=$(timeout 10 xdotool search --sync --onlyvisible --pid "$held_pid" | head -1) || fail "no fatal window when the focus name is held"
 sleep 1
 xdotool windowactivate --sync "$held_window" key Escape
 status=0; wait "$held_pid" || status=$?
@@ -369,7 +371,7 @@ cmp /tmp/install/home/.local/bin/spentday "$spentday" || fail "install.sh did no
 grep -qx 'ExecStart="/tmp/install/home/.local/bin/spentday" --background' /tmp/install/home/.config/systemd/user/spentday.service \
   || fail "ExecStart"
 grep -qx 'RestartPreventExitStatus=3' /tmp/install/home/.config/systemd/user/spentday.service \
-  || fail "the service restarts after a dialog the user closed"
+  || fail "the service restarts after a fatal window the user closed"
 [ "$(grep -cx 'systemctl --user restart spentday.service' /tmp/install/calls)" = 2 ] || fail "reruns restart the service"
 grep -q -- '--now' /tmp/install/calls && fail "install.sh still uses enable --now"
 [ -z "$(ls -A /tmp/install/tmp)" ] || fail "install.sh left temporary files"

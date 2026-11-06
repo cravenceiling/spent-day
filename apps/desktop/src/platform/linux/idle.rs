@@ -2,8 +2,8 @@
 
 mod wayland;
 
-use crate::collector::Kind;
-use crate::dbus;
+use crate::platform::linux::collector::Kind;
+use crate::platform::linux::dbus;
 use std::time::{Duration, Instant};
 use wayland::WaylandIdle;
 use x11rb::connection::Connection as _;
@@ -18,7 +18,11 @@ pub trait Idle: Send {
 
 /// Waits before each new search for an idle source after the first fails, the last one
 /// repeating. A service can be too slow to answer while the session starts.
-const RETRY: [Duration; 3] = [Duration::from_secs(5), Duration::from_secs(30), Duration::from_secs(300)];
+const RETRY: [Duration; 3] = [
+    Duration::from_secs(5),
+    Duration::from_secs(30),
+    Duration::from_secs(300),
+];
 
 /// `threshold` is how long the user must be idle before the tracker cares, which a source that
 /// only reports crossing a timeout (`ext-idle-notify-v1`) needs to know up front.
@@ -30,7 +34,13 @@ pub fn open(kind: Option<Kind>, threshold: Duration) -> Box<dyn Idle> {
                 "spentday: no idle source on this session ({}); time away from the keyboard counts as active until one answers",
                 failed.join(", ")
             );
-            Box::new(Searching { kind, threshold, failures: 0, next: Instant::now() + RETRY[0], found: None })
+            Box::new(Searching {
+                kind,
+                threshold,
+                failures: 0,
+                next: Instant::now() + RETRY[0],
+                found: None,
+            })
         }
     }
 }
@@ -44,16 +54,36 @@ fn find(kind: Option<Kind>, threshold: Duration) -> Result<Box<dyn Idle>, Vec<St
         }
     }
     let wayland = |failed: &mut Vec<String>| {
-        WaylandIdle::connect(threshold).map_err(|e| failed.push(format!("ext-idle-notify-v1: {e}"))).ok()
+        WaylandIdle::connect(threshold)
+            .map_err(|e| failed.push(format!("ext-idle-notify-v1: {e}")))
+            .ok()
     };
     // Sway and Hyprland have no D-Bus idle service of their own.
-    if matches!(kind, Some(Kind::Sway | Kind::Hyprland)) && let Some(source) = wayland(&mut failed) {
+    if matches!(kind, Some(Kind::Sway | Kind::Hyprland))
+        && let Some(source) = wayland(&mut failed)
+    {
         return Ok(Box::new(source));
     }
     match dbus::session() {
         Ok(conn) => {
-            let mutter = || DBusIdle::probe(&conn, "org.gnome.Mutter.IdleMonitor", "/org/gnome/Mutter/IdleMonitor/Core", "org.gnome.Mutter.IdleMonitor", "GetIdletime");
-            let fdo = || DBusIdle::probe(&conn, "org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "GetSessionIdleTime");
+            let mutter = || {
+                DBusIdle::probe(
+                    &conn,
+                    "org.gnome.Mutter.IdleMonitor",
+                    "/org/gnome/Mutter/IdleMonitor/Core",
+                    "org.gnome.Mutter.IdleMonitor",
+                    "GetIdletime",
+                )
+            };
+            let fdo = || {
+                DBusIdle::probe(
+                    &conn,
+                    "org.freedesktop.ScreenSaver",
+                    "/org/freedesktop/ScreenSaver",
+                    "org.freedesktop.ScreenSaver",
+                    "GetSessionIdleTime",
+                )
+            };
             if let Some(source) = mutter().or_else(fdo) {
                 return Ok(Box::new(source));
             }
@@ -61,7 +91,9 @@ fn find(kind: Option<Kind>, threshold: Duration) -> Result<Box<dyn Idle>, Vec<St
         }
         Err(e) => failed.push(format!("D-Bus: {e}")),
     }
-    if matches!(kind, Some(Kind::Gnome | Kind::Kde)) && let Some(source) = wayland(&mut failed) {
+    if matches!(kind, Some(Kind::Gnome | Kind::Kde))
+        && let Some(source) = wayland(&mut failed)
+    {
         return Ok(Box::new(source));
     }
     Err(failed)
@@ -109,7 +141,12 @@ impl XScreenSaver {
     }
 
     fn query(&self) -> Option<u64> {
-        let info = self.conn.screensaver_query_info(self.root).ok()?.reply().ok()?;
+        let info = self
+            .conn
+            .screensaver_query_info(self.root)
+            .ok()?
+            .reply()
+            .ok()?;
         Some(info.ms_since_user_input.into())
     }
 }
@@ -128,15 +165,26 @@ struct DBusIdle {
 }
 
 impl DBusIdle {
-    fn probe(conn: &Connection, dest: &str, path: &str, iface: &str, method: &'static str) -> Option<DBusIdle> {
-        let source = DBusIdle { proxy: dbus::proxy(conn, dest, path, iface).ok()?, method };
+    fn probe(
+        conn: &Connection,
+        dest: &str,
+        path: &str,
+        iface: &str,
+        method: &'static str,
+    ) -> Option<DBusIdle> {
+        let source = DBusIdle {
+            proxy: dbus::proxy(conn, dest, path, iface).ok()?,
+            method,
+        };
         source.query().is_some().then_some(source)
     }
 
     fn query(&self) -> Option<u64> {
         let reply = self.proxy.call_method(self.method, &()).ok()?;
         let body = reply.body();
-        body.deserialize::<u64>().ok().or_else(|| body.deserialize::<u32>().ok().map(u64::from))
+        body.deserialize::<u64>()
+            .ok()
+            .or_else(|| body.deserialize::<u32>().ok().map(u64::from))
     }
 }
 
@@ -172,7 +220,10 @@ mod tests {
             .unwrap()
             .name("org.gnome.Mutter.IdleMonitor")
             .unwrap()
-            .serve_at("/org/gnome/Mutter/IdleMonitor/Core", SlowFirstMutter(AtomicBool::new(false)))
+            .serve_at(
+                "/org/gnome/Mutter/IdleMonitor/Core",
+                SlowFirstMutter(AtomicBool::new(false)),
+            )
             .unwrap()
             .build()
             .unwrap();

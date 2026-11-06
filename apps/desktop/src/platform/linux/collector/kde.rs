@@ -1,5 +1,5 @@
 use super::{Collector, Window, take_focus_name};
-use crate::dbus;
+use crate::platform::linux::dbus;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -30,7 +30,9 @@ impl Sink {
         #[zbus(connection)] conn: &zbus::Connection,
     ) -> zbus::fdo::Result<()> {
         if !from_kwin(conn, &header).await {
-            return Err(zbus::fdo::Error::AccessDenied("only KWin may report focus".into()));
+            return Err(zbus::fdo::Error::AccessDenied(
+                "only KWin may report focus".into(),
+            ));
         }
         *self.focused.lock().unwrap() = Window::new(&app_id);
         let _ = self.reported.send(());
@@ -41,9 +43,17 @@ impl Sink {
 /// Whether the call came from the connection that owns `org.kde.KWin`. KWin scripts call out on
 /// KWin's own connection, so another process can send a report but cannot pass as KWin.
 async fn from_kwin(conn: &zbus::Connection, header: &zbus::message::Header<'_>) -> bool {
-    let Some(sender) = header.sender() else { return false };
+    let Some(sender) = header.sender() else {
+        return false;
+    };
     let owner = conn
-        .call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), "GetNameOwner", &("org.kde.KWin",))
+        .call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "GetNameOwner",
+            &("org.kde.KWin",),
+        )
         .await
         .and_then(|reply| reply.body().deserialize::<String>());
     owner.is_ok_and(|owner| owner == sender.as_str())
@@ -62,14 +72,27 @@ impl Kde {
         let (reported, report) = mpsc::channel();
         let conn = Builder::session()
             .map(|b| b.method_timeout(dbus::TIMEOUT))
-            .and_then(|b| b.serve_at("/day/spent/SpentDay/Focus", Sink { focused: focused.clone(), reported }))
+            .and_then(|b| {
+                b.serve_at(
+                    "/day/spent/SpentDay/Focus",
+                    Sink {
+                        focused: focused.clone(),
+                        reported,
+                    },
+                )
+            })
             .and_then(|b| b.build())
             .map_err(|e| e.to_string())?;
         take_focus_name(&conn)?;
         if let Err(e) = report_now(&conn, &report) {
-            eprintln!("spentday: could not ask KWin for the active window, it is known at the next focus change: {e}");
+            eprintln!(
+                "spentday: could not ask KWin for the active window, it is known at the next focus change: {e}"
+            );
         }
-        Ok(Kde { _conn: conn, focused })
+        Ok(Kde {
+            _conn: conn,
+            focused,
+        })
     }
 }
 
@@ -77,7 +100,9 @@ impl Kde {
 fn report_now(conn: &Connection, report: &Receiver<()>) -> Result<(), String> {
     // Without XDG_RUNTIME_DIR the base is the shared temp dir, where another user could plant a
     // symlink or their own script at a fixed name.
-    let base = env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(env::temp_dir);
+    let base = env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(env::temp_dir);
     let dir = tempfile::Builder::new()
         .prefix("spentday-")
         .permissions(fs::Permissions::from_mode(0o700))
@@ -88,14 +113,23 @@ fn report_now(conn: &Connection, report: &Receiver<()>) -> Result<(), String> {
         .suffix(".js")
         .tempfile_in(dir.path())
         .map_err(|e| format!("{}: {e}", dir.path().display()))?;
-    file.write_all(REPORT_NOW.as_bytes()).map_err(|e| format!("{}: {e}", file.path().display()))?;
-    let scripting = dbus::proxy(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").map_err(|e| e.to_string())?;
+    file.write_all(REPORT_NOW.as_bytes())
+        .map_err(|e| format!("{}: {e}", file.path().display()))?;
+    let scripting = dbus::proxy(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting")
+        .map_err(|e| e.to_string())?;
     let _: zbus::Result<bool> = scripting.call("unloadScript", &(REPORT_NOW_NAME));
-    let id: i32 = scripting.call("loadScript", &(file.path().to_string_lossy().as_ref(), REPORT_NOW_NAME)).map_err(|e| e.to_string())?;
+    let id: i32 = scripting
+        .call(
+            "loadScript",
+            &(file.path().to_string_lossy().as_ref(), REPORT_NOW_NAME),
+        )
+        .map_err(|e| e.to_string())?;
     if id < 0 {
         return Err(format!("KWin did not load {}", file.path().display()));
     }
-    scripting.call::<_, _, ()>("start", &()).map_err(|e| e.to_string())?;
+    scripting
+        .call::<_, _, ()>("start", &())
+        .map_err(|e| e.to_string())?;
     let _ = report.recv_timeout(dbus::TIMEOUT);
     let _: zbus::Result<bool> = scripting.call("unloadScript", &(REPORT_NOW_NAME));
     Ok(())
@@ -114,9 +148,9 @@ impl Collector for Kde {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collector::FOCUS_NAME;
-    use zbus::fdo::{RequestNameFlags, RequestNameReply};
+    use crate::platform::linux::collector::FOCUS_NAME;
     use std::path::Path;
+    use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
     /// Records what Spent Day asks of KWin's scripting service.
     #[derive(Default, Clone)]
@@ -137,11 +171,17 @@ mod tests {
         #[zbus(name = "loadScript")]
         fn load_script(&self, path: String, name: String) -> i32 {
             let script = fs::read_to_string(&path).unwrap_or_default();
-            let reads_active = script.contains("workspace.activeWindow") && script.contains("\"Report\"");
+            let reads_active =
+                script.contains("workspace.activeWindow") && script.contains("\"Report\"");
             let dir = Path::new(&path).parent().unwrap();
-            let base = env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(env::temp_dir);
-            let private = dir != base && fs::symlink_metadata(dir).unwrap().permissions().mode() & 0o777 == 0o700;
-            self.0.0.lock().unwrap().push(format!("load {name} reads_active={reads_active} private={private}"));
+            let base = env::var_os("XDG_RUNTIME_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(env::temp_dir);
+            let private = dir != base
+                && fs::symlink_metadata(dir).unwrap().permissions().mode() & 0o777 == 0o700;
+            self.0.0.lock().unwrap().push(format!(
+                "load {name} reads_active={reads_active} private={private}"
+            ));
             *self.1.lock().unwrap() = Some(path);
             7
         }
@@ -150,9 +190,15 @@ mod tests {
         #[zbus(name = "start")]
         async fn start(&self, #[zbus(connection)] conn: &zbus::Connection) {
             self.0.0.lock().unwrap().push("start".into());
-            conn.call_method(Some(FOCUS_NAME), "/day/spent/SpentDay/Focus", Some(FOCUS_NAME), "Report", &("org.kde.dolphin",))
-                .await
-                .unwrap();
+            conn.call_method(
+                Some(FOCUS_NAME),
+                "/day/spent/SpentDay/Focus",
+                Some(FOCUS_NAME),
+                "Report",
+                &("org.kde.dolphin",),
+            )
+            .await
+            .unwrap();
         }
     }
 
@@ -177,7 +223,11 @@ mod tests {
             .unwrap();
         let mut kde = Kde::serve().unwrap();
         let _ = fs::remove_file(&trap);
-        assert_eq!(fs::read_to_string(victim.path()).unwrap(), "", "wrote through the symlink");
+        assert_eq!(
+            fs::read_to_string(victim.path()).unwrap(),
+            "",
+            "wrote through the symlink"
+        );
         assert_eq!(
             *calls.0.lock().unwrap(),
             [
@@ -189,21 +239,40 @@ mod tests {
         );
         assert_eq!(
             kde.active().unwrap(),
-            Some(Window { app_id: "org.kde.dolphin".into() })
+            Some(Window {
+                app_id: "org.kde.dolphin".into()
+            })
         );
         let script = loaded.lock().unwrap().clone().unwrap();
         assert!(!Path::new(&script).exists(), "{script} is still there");
 
         // Any other process on the session bus is turned down.
         let other = Connection::session().unwrap();
-        let focus = dbus::proxy(&other, FOCUS_NAME, "/day/spent/SpentDay/Focus", FOCUS_NAME).unwrap();
-        let denied = focus.call::<_, _, ()>("Report", &("evil.app",)).unwrap_err();
+        let focus =
+            dbus::proxy(&other, FOCUS_NAME, "/day/spent/SpentDay/Focus", FOCUS_NAME).unwrap();
+        let denied = focus
+            .call::<_, _, ()>("Report", &("evil.app",))
+            .unwrap_err();
         assert!(denied.to_string().contains("AccessDenied"), "{denied}");
-        assert_eq!(kde.active().unwrap(), Some(Window { app_id: "org.kde.dolphin".into() }));
+        assert_eq!(
+            kde.active().unwrap(),
+            Some(Window {
+                app_id: "org.kde.dolphin".into()
+            })
+        );
 
         // Nobody can take the name from a running Spent Day, and a second one does not start.
-        let reply = other.request_name_with_flags(FOCUS_NAME, RequestNameFlags::ReplaceExisting | RequestNameFlags::DoNotQueue);
-        assert!(matches!(reply, Ok(RequestNameReply::Exists) | Err(zbus::Error::NameTaken)), "{reply:?}");
+        let reply = other.request_name_with_flags(
+            FOCUS_NAME,
+            RequestNameFlags::ReplaceExisting | RequestNameFlags::DoNotQueue,
+        );
+        assert!(
+            matches!(
+                reply,
+                Ok(RequestNameReply::Exists) | Err(zbus::Error::NameTaken)
+            ),
+            "{reply:?}"
+        );
         let second = Kde::serve().err().unwrap();
         assert!(second.contains("Another program holds"), "{second}");
     }

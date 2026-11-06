@@ -17,7 +17,7 @@ RestartSec=5
 RestartPreventExitStatus=3
 # Only settings a user manager can apply without a namespace. PrivateTmp= would hide the X11
 # socket in /tmp. ProtectSystem= needs a mount namespace, and Spent Day writes its database,
-# GTK settings and caches under the home directory.
+# settings and caches under the home directory.
 NoNewPrivileges=yes
 LockPersonality=yes
 RestrictRealtime=yes

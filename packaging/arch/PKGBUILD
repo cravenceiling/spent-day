@@ -7,42 +7,45 @@ url='https://github.com/cravenceiling/spent-day'
 license=('MIT')
 # Rust's LLVM linker cannot read GCC LTO objects from ring and bundled SQLite.
 options=('!debug' '!lto')
-depends=('gtk4>=4.18' 'libadwaita>=1.7' 'glib2' 'glibc' 'libgcc' 'cairo' 'pango' 'gdk-pixbuf2' 'graphene' 'hicolor-icon-theme')
+depends=('glibc' 'libgcc' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'vulkan-icd-loader' 'hicolor-icon-theme')
 makedepends=('rust' 'pkgconf')
 optdepends=('gnome-shell: GNOME Wayland focus tracking'
-            'kwin: KDE Wayland focus tracking')
+            'kwin: KDE Wayland focus tracking'
+            'vulkan-driver: GPU rendering'
+            'sway: Sway focus tracking'
+            'hyprland: Hyprland focus tracking')
 install=spentday.install
 
 # CI packages the checkout, including uncommitted changes in local package checks.
 _source_root="$startdir/../.."
 
 build() {
-  cd "$_source_root/apps/linux"
+  cd "$_source_root/apps/desktop"
   cargo build --release --locked
 }
 
 package() {
   cd "$_source_root"
-  install -Dm755 apps/linux/target/release/spentday "$pkgdir/usr/bin/spentday"
+  install -Dm755 apps/desktop/target/release/spentday "$pkgdir/usr/bin/spentday"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  install -Dm644 apps/linux/data/icons/day.spent.SpentDay.svg \
+  install -Dm644 apps/desktop/linux/data/icons/day.spent.SpentDay.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/day.spent.SpentDay.svg"
-  install -Dm644 apps/linux/data/day.spent.SpentDay.desktop \
+  install -Dm644 apps/desktop/linux/data/day.spent.SpentDay.desktop \
     "$pkgdir/usr/share/applications/day.spent.SpentDay.desktop"
-  install -Dm644 apps/linux/data/day.spent.SpentDay-autostart.desktop \
+  install -Dm644 apps/desktop/linux/data/day.spent.SpentDay-autostart.desktop \
     "$pkgdir/usr/share/applications/day.spent.SpentDay-autostart.desktop"
   sed -i 's|^Exec=spentday|Exec=/usr/bin/spentday|' \
     "$pkgdir/usr/share/applications/day.spent.SpentDay.desktop" \
     "$pkgdir/usr/share/applications/day.spent.SpentDay-autostart.desktop"
-  install -Dm644 apps/linux/data/spentday.service "$pkgdir/usr/lib/systemd/user/spentday.service"
+  install -Dm644 apps/desktop/linux/data/spentday.service "$pkgdir/usr/lib/systemd/user/spentday.service"
   sed -i 's|^ExecStart=.*|ExecStart=/usr/bin/spentday --background|' \
     "$pkgdir/usr/lib/systemd/user/spentday.service"
-  install -Dm644 apps/linux/gnome-extension/metadata.json \
+  install -Dm644 apps/desktop/linux/gnome-extension/metadata.json \
     "$pkgdir/usr/share/gnome-shell/extensions/spentday@spent.day/metadata.json"
-  install -Dm644 apps/linux/gnome-extension/extension.js \
+  install -Dm644 apps/desktop/linux/gnome-extension/extension.js \
     "$pkgdir/usr/share/gnome-shell/extensions/spentday@spent.day/extension.js"
-  install -Dm644 apps/linux/kwin-script/metadata.json \
+  install -Dm644 apps/desktop/linux/kwin-script/metadata.json \
     "$pkgdir/usr/share/kwin/scripts/spentday-focus/metadata.json"
-  install -Dm644 apps/linux/kwin-script/contents/code/main.js \
+  install -Dm644 apps/desktop/linux/kwin-script/contents/code/main.js \
     "$pkgdir/usr/share/kwin/scripts/spentday-focus/contents/code/main.js"
 }

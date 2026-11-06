@@ -6,6 +6,6 @@ Comment=See how you spend time across all your devices
 Exec=spentday
 Icon=day.spent.SpentDay
 Terminal=false
-Categories=Utility;GTK;
+Categories=Utility;
 Keywords=screen time;usage;activity;tracker;wellbeing;
 StartupNotify=true
