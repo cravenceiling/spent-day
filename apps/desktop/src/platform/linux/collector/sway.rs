@@ -37,7 +37,7 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> Value {
-        let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/linux/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
@@ -45,7 +45,9 @@ mod tests {
     fn finds_the_focused_wayland_window() {
         assert_eq!(
             focused(&fixture("sway-tree-foot.json")),
-            Some(Window { app_id: "foot".into() })
+            Some(Window {
+                app_id: "foot".into()
+            })
         );
     }
 
@@ -58,7 +60,9 @@ mod tests {
     fn xwayland_window_uses_its_class() {
         assert_eq!(
             focused(&fixture("sway-tree-xwayland.json")),
-            Some(Window { app_id: "XTerm".into() })
+            Some(Window {
+                app_id: "XTerm".into()
+            })
         );
     }
 }

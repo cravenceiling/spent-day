@@ -5,9 +5,9 @@
 //! A slow or hung player must never hold up focus tracking, so the checks run on their own
 //! thread, which publishes what it found as a `Snapshot` the tracker reads.
 
-use crate::dbus;
-use crate::desktop::Entries;
-use crate::tracker::now_ms;
+use crate::platform::linux::dbus;
+use crate::platform::linux::desktop::Entries;
+use crate::platform::linux::tracker::now_ms;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -60,16 +60,26 @@ impl Presence {
                 loop {
                     let observed_at_ms = now_ms();
                     let app_id: Option<String> = app_id.lock().unwrap().clone();
-                    let app = app_id.as_deref().map(|app_id| App { app_id, desktop_id: entries.info(app_id).desktop_id.as_deref() });
+                    let app = app_id.as_deref().map(|app_id| App {
+                        app_id,
+                        desktop_id: entries.info(app_id).desktop_id.as_deref(),
+                    });
                     let state = media.sweep(app.as_ref(), BUDGET);
-                    *snapshot.lock().unwrap() = Some(Snapshot { state, observed_at_ms });
+                    *snapshot.lock().unwrap() = Some(Snapshot {
+                        state,
+                        observed_at_ms,
+                    });
                     if stopped.recv_timeout(EVERY) != Err(RecvTimeoutError::Timeout) {
                         break;
                     }
                 }
             })
             .expect("spawn presence thread");
-        Presence { focused, latest, _stop: stop }
+        Presence {
+            focused,
+            latest,
+            _stop: stop,
+        }
     }
 
     /// The app in front, by its app id, for the next round of checks.
@@ -102,7 +112,11 @@ impl Round {
         if self.state == State::Present {
             return;
         }
-        let found = if Instant::now() < self.deadline { source() } else { State::Unknown };
+        let found = if Instant::now() < self.deadline {
+            source()
+        } else {
+            State::Unknown
+        };
         self.state = self.state.max(found);
     }
 }
@@ -121,17 +135,29 @@ impl Media {
     pub fn new() -> Media {
         let session = dbus::session().ok();
         let owner_changes = session.as_ref().and_then(|conn| {
-            watch_owners(conn).map_err(|e| eprintln!("spentday: not watching MPRIS players come and go: {e}")).ok()
+            watch_owners(conn)
+                .map_err(|e| eprintln!("spentday: not watching MPRIS players come and go: {e}"))
+                .ok()
         });
-        Media { session, system: dbus::system().ok(), entries: HashMap::new(), owner_changes }
+        Media {
+            session,
+            system: dbus::system().ok(),
+            entries: HashMap::new(),
+            owner_changes,
+        }
     }
 
     /// One round of checks for the focused app, given at most `budget`.
     pub fn sweep(&mut self, focused: Option<&App>, budget: Duration) -> State {
-        let mut round = Round { state: State::Absent, deadline: Instant::now() + budget };
+        let mut round = Round {
+            state: State::Absent,
+            deadline: Instant::now() + budget,
+        };
         round.check(|| self.logind_inhibited());
         round.check(|| self.gnome_inhibited());
-        let Some(app) = focused else { return round.state };
+        let Some(app) = focused else {
+            return round.state;
+        };
         self.forget_replaced_players();
         let mut players = Vec::new();
         round.check(|| match self.players() {
@@ -150,35 +176,58 @@ impl Media {
     }
 
     fn logind_inhibited(&self) -> State {
-        let Some(conn) = &self.system else { return State::Absent };
+        let Some(conn) = &self.system else {
+            return State::Absent;
+        };
         answer(
-            dbus::proxy(conn, "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager")
-                .and_then(|p| p.get_property::<String>("BlockInhibited")),
+            dbus::proxy(
+                conn,
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+            )
+            .and_then(|p| p.get_property::<String>("BlockInhibited")),
             |what| blocks_idle(&what),
         )
     }
 
     fn gnome_inhibited(&self) -> State {
-        let Some(conn) = &self.session else { return State::Absent };
+        let Some(conn) = &self.session else {
+            return State::Absent;
+        };
         answer(
-            dbus::proxy(conn, "org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager")
-                .and_then(|p| p.call::<_, _, bool>("IsInhibited", &(GNOME_INHIBIT_IDLE))),
+            dbus::proxy(
+                conn,
+                "org.gnome.SessionManager",
+                "/org/gnome/SessionManager",
+                "org.gnome.SessionManager",
+            )
+            .and_then(|p| p.call::<_, _, bool>("IsInhibited", &(GNOME_INHIBIT_IDLE))),
             |inhibited| inhibited,
         )
     }
 
     /// The bus names of the MPRIS players on the session bus.
     fn players(&self) -> Result<Vec<String>, State> {
-        let Some(conn) = &self.session else { return Ok(Vec::new()) };
-        let names = DBusProxy::new(conn).and_then(|bus| Ok(bus.list_names()?)).map_err(|e| classify(&e))?;
-        Ok(names.into_iter().map(|name| name.to_string()).filter(|name| name.starts_with(MPRIS)).collect())
+        let Some(conn) = &self.session else {
+            return Ok(Vec::new());
+        };
+        let names = DBusProxy::new(conn)
+            .and_then(|bus| Ok(bus.list_names()?))
+            .map_err(|e| classify(&e))?;
+        Ok(names
+            .into_iter()
+            .map(|name| name.to_string())
+            .filter(|name| name.starts_with(MPRIS))
+            .collect())
     }
 
     fn playing_in(&mut self, name: &str, app: &App) -> State {
         let owned = if belongs_to(name, None, app) {
             Ok(true)
         } else {
-            self.desktop_entry(name).map(|entry| belongs_to(name, entry.as_deref(), app))
+            self.desktop_entry(name)
+                .map(|entry| belongs_to(name, entry.as_deref(), app))
         };
         match owned {
             Ok(true) => self.playing(name),
@@ -189,10 +238,17 @@ impl Media {
     }
 
     fn playing(&self, name: &str) -> State {
-        let Some(conn) = &self.session else { return State::Absent };
+        let Some(conn) = &self.session else {
+            return State::Absent;
+        };
         answer(
-            dbus::proxy(conn, name, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player")
-                .and_then(|p| p.get_property::<String>("PlaybackStatus")),
+            dbus::proxy(
+                conn,
+                name,
+                "/org/mpris/MediaPlayer2",
+                "org.mpris.MediaPlayer2.Player",
+            )
+            .and_then(|p| p.get_property::<String>("PlaybackStatus")),
             |status| status == "Playing",
         )
     }
@@ -202,9 +258,16 @@ impl Media {
         if let Some(entry) = self.entries.get(name) {
             return Ok(entry.clone());
         }
-        let Some(conn) = &self.session else { return Ok(None) };
-        let entry = match dbus::proxy(conn, name, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2")
-            .and_then(|p| p.get_property::<String>("DesktopEntry"))
+        let Some(conn) = &self.session else {
+            return Ok(None);
+        };
+        let entry = match dbus::proxy(
+            conn,
+            name,
+            "/org/mpris/MediaPlayer2",
+            "org.mpris.MediaPlayer2",
+        )
+        .and_then(|p| p.get_property::<String>("DesktopEntry"))
         {
             Ok(entry) => Some(entry),
             Err(e) if classify(&e) == State::Absent => None,
@@ -217,7 +280,9 @@ impl Media {
     }
 
     fn forget_replaced_players(&mut self) {
-        let Some(changes) = &self.owner_changes else { return };
+        let Some(changes) = &self.owner_changes else {
+            return;
+        };
         loop {
             match changes.try_recv() {
                 Ok(name) => {
@@ -249,7 +314,10 @@ fn watch_owners(conn: &Connection) -> zbus::Result<Receiver<String>> {
         .name("mpris-owners".into())
         .spawn(move || {
             for signal in signals.flatten() {
-                let Ok((name, _, _)) = signal.body().deserialize::<(String, String, String)>() else { continue };
+                let Ok((name, _, _)) = signal.body().deserialize::<(String, String, String)>()
+                else {
+                    continue;
+                };
                 if changed.send(name).is_err() {
                     return;
                 }
@@ -288,7 +356,11 @@ fn classify(e: &zbus::Error) -> State {
         zbus::Error::FDO(e) => ABSENT.contains(&e.name().as_str()),
         _ => false,
     };
-    if absent { State::Absent } else { State::Unknown }
+    if absent {
+        State::Absent
+    } else {
+        State::Unknown
+    }
 }
 
 /// logind's `BlockInhibited` is a colon-separated list such as `handle-power-key:idle:sleep`.
@@ -300,14 +372,20 @@ fn blocks_idle(what: &str) -> bool {
 /// its `DesktopEntry` (`google-chrome`, `org.gnome.Totem`).
 fn belongs_to(bus_name: &str, desktop_entry: Option<&str>, app: &App) -> bool {
     let player = bus_name.strip_prefix(MPRIS).unwrap_or(bus_name);
-    let player = player.split_once(".instance").map_or(player, |(name, _)| name);
+    let player = player
+        .split_once(".instance")
+        .map_or(player, |(name, _)| name);
     let players = [Some(player), desktop_entry];
     let apps = [Some(app.app_id), app.desktop_id];
     players
         .into_iter()
         .flatten()
         .filter(|p| !p.is_empty())
-        .any(|p| apps.into_iter().flatten().any(|a| a.eq_ignore_ascii_case(p)))
+        .any(|p| {
+            apps.into_iter()
+                .flatten()
+                .any(|a| a.eq_ignore_ascii_case(p))
+        })
 }
 
 #[cfg(test)]
@@ -373,8 +451,14 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        assert_eq!(media.sweep(Some(&app("spentdaytest", None)), BUDGET), State::Present);
-        assert_eq!(media.sweep(Some(&app("firefox", Some("firefox"))), BUDGET), State::Absent);
+        assert_eq!(
+            media.sweep(Some(&app("spentdaytest", None)), BUDGET),
+            State::Present
+        );
+        assert_eq!(
+            media.sweep(Some(&app("firefox", Some("firefox"))), BUDGET),
+            State::Absent
+        );
         assert_eq!(media.sweep(None, BUDGET), State::Absent);
 
         let _slow = builder()
@@ -384,8 +468,14 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        assert_eq!(media.sweep(Some(&app("spentdaytestslow", None)), BUDGET), State::Unknown);
-        assert_eq!(media.sweep(Some(&app("spentdaytest", None)), BUDGET), State::Present);
+        assert_eq!(
+            media.sweep(Some(&app("spentdaytestslow", None)), BUDGET),
+            State::Unknown
+        );
+        assert_eq!(
+            media.sweep(Some(&app("spentdaytest", None)), BUDGET),
+            State::Present
+        );
 
         let _gnome = builder()
             .name("org.gnome.SessionManager")
@@ -408,16 +498,44 @@ mod tests {
     #[test]
     fn players_belong_to_the_app_they_name() {
         let firefox = "org.mpris.MediaPlayer2.firefox.instance_1_84";
-        assert!(belongs_to(firefox, Some("firefox"), &app("firefox", Some("firefox"))));
+        assert!(belongs_to(
+            firefox,
+            Some("firefox"),
+            &app("firefox", Some("firefox"))
+        ));
         assert!(belongs_to(firefox, None, &app("firefox", None)));
-        assert!(!belongs_to(firefox, Some("firefox"), &app("code", Some("code"))));
+        assert!(!belongs_to(
+            firefox,
+            Some("firefox"),
+            &app("code", Some("code"))
+        ));
 
         let chrome = "org.mpris.MediaPlayer2.chromium.instance4123";
-        assert!(belongs_to(chrome, Some("google-chrome"), &app("google-chrome", Some("google-chrome"))));
-        assert!(!belongs_to(chrome, Some("google-chrome"), &app("org.gnome.Ptyxis", None)));
+        assert!(belongs_to(
+            chrome,
+            Some("google-chrome"),
+            &app("google-chrome", Some("google-chrome"))
+        ));
+        assert!(!belongs_to(
+            chrome,
+            Some("google-chrome"),
+            &app("org.gnome.Ptyxis", None)
+        ));
 
-        assert!(belongs_to("org.mpris.MediaPlayer2.spotify", Some(""), &app("Spotify", None)));
-        assert!(belongs_to("org.mpris.MediaPlayer2.totem", Some("org.gnome.Totem"), &app("Totem", Some("org.gnome.Totem"))));
-        assert!(!belongs_to("org.mpris.MediaPlayer2.spotify", Some("spotify"), &app("firefox", Some("firefox"))));
+        assert!(belongs_to(
+            "org.mpris.MediaPlayer2.spotify",
+            Some(""),
+            &app("Spotify", None)
+        ));
+        assert!(belongs_to(
+            "org.mpris.MediaPlayer2.totem",
+            Some("org.gnome.Totem"),
+            &app("Totem", Some("org.gnome.Totem"))
+        ));
+        assert!(!belongs_to(
+            "org.mpris.MediaPlayer2.spotify",
+            Some("spotify"),
+            &app("firefox", Some("firefox"))
+        ));
     }
 }

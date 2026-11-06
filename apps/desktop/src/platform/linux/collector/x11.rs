@@ -27,12 +27,29 @@ impl X11 {
     }
 
     fn property(&self, window: u32, name: impl Into<u32>, kind: impl Into<u32>) -> Option<Vec<u8>> {
-        let reply = self.conn.get_property(false, window, name, kind, 0, 4096).ok()?.reply().ok()?;
+        let reply = self
+            .conn
+            .get_property(false, window, name, kind, 0, 4096)
+            .ok()?
+            .reply()
+            .ok()?;
         Some(reply.value)
     }
 
     fn pid(&self, window: u32) -> Option<u32> {
-        let reply = self.conn.get_property(false, window, self.atoms._NET_WM_PID, AtomEnum::CARDINAL, 0, 1).ok()?.reply().ok()?;
+        let reply = self
+            .conn
+            .get_property(
+                false,
+                window,
+                self.atoms._NET_WM_PID,
+                AtomEnum::CARDINAL,
+                0,
+                1,
+            )
+            .ok()?
+            .reply()
+            .ok()?;
         reply.value32()?.next()
     }
 }
@@ -45,7 +62,14 @@ impl Collector for X11 {
     fn active(&mut self) -> Result<Option<Window>, String> {
         let reply = self
             .conn
-            .get_property(false, self.root, self.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW, 0, 1)
+            .get_property(
+                false,
+                self.root,
+                self.atoms._NET_ACTIVE_WINDOW,
+                AtomEnum::WINDOW,
+                0,
+                1,
+            )
             .map_err(|e| e.to_string())?
             .reply()
             .map_err(|e| e.to_string())?;
@@ -58,7 +82,10 @@ impl Collector for X11 {
         let app_id = self
             .property(window, AtomEnum::WM_CLASS, AtomEnum::STRING)
             .and_then(|v| app_id(&v))
-            .or_else(|| self.pid(window).and_then(|pid| process_name(Path::new("/proc"), pid)));
+            .or_else(|| {
+                self.pid(window)
+                    .and_then(|pid| process_name(Path::new("/proc"), pid))
+            });
         Ok(app_id.and_then(|id| Window::new(&id)))
     }
 }
@@ -67,13 +94,22 @@ impl Collector for X11 {
 /// `org.gnome.Nautilus`), but when it only differs from the instance by case
 /// (`Google-chrome` / `google-chrome`) the lowercase instance matches the Wayland app id.
 fn app_id(wm_class: &[u8]) -> Option<String> {
-    let mut parts = wm_class.split(|&b| b == 0).map(|p| String::from_utf8_lossy(p).into_owned());
+    let mut parts = wm_class
+        .split(|&b| b == 0)
+        .map(|p| String::from_utf8_lossy(p).into_owned());
     let instance = parts.next().unwrap_or_default();
-    let class = parts.next().filter(|c| !c.is_empty()).unwrap_or_else(|| instance.clone());
+    let class = parts
+        .next()
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| instance.clone());
     if class.is_empty() {
         return None;
     }
-    Some(if class != instance && class.to_lowercase() == instance { instance } else { class })
+    Some(if class != instance && class.to_lowercase() == instance {
+        instance
+    } else {
+        class
+    })
 }
 
 /// `/proc/<pid>/comm`, the name the kernel keeps for a process, cut to 15 bytes.
@@ -105,23 +141,63 @@ mod tests {
         let mut x11 = X11::connect().unwrap();
         let window = x11.conn.generate_id().unwrap();
         x11.conn
-            .create_window(0, window, x11.root, 0, 0, 10, 10, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new())
+            .create_window(
+                0,
+                window,
+                x11.root,
+                0,
+                0,
+                10,
+                10,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )
             .unwrap();
-        x11.conn.change_property32(PropMode::REPLACE, window, x11.atoms._NET_WM_PID, AtomEnum::CARDINAL, &[std::process::id()]).unwrap();
-        x11.conn.change_property32(PropMode::REPLACE, x11.root, x11.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW, &[window]).unwrap();
+        x11.conn
+            .change_property32(
+                PropMode::REPLACE,
+                window,
+                x11.atoms._NET_WM_PID,
+                AtomEnum::CARDINAL,
+                &[std::process::id()],
+            )
+            .unwrap();
+        x11.conn
+            .change_property32(
+                PropMode::REPLACE,
+                x11.root,
+                x11.atoms._NET_ACTIVE_WINDOW,
+                AtomEnum::WINDOW,
+                &[window],
+            )
+            .unwrap();
         x11.conn.sync().unwrap();
-        let comm = fs::read_to_string("/proc/self/comm").unwrap().trim_end().to_owned();
+        let comm = fs::read_to_string("/proc/self/comm")
+            .unwrap()
+            .trim_end()
+            .to_owned();
         assert_eq!(x11.active().unwrap(), Some(Window { app_id: comm }));
     }
 
     #[test]
     fn wm_class_to_app_id() {
-        assert_eq!(app_id(b"google-chrome\0Google-chrome\0").as_deref(), Some("google-chrome"));
+        assert_eq!(
+            app_id(b"google-chrome\0Google-chrome\0").as_deref(),
+            Some("google-chrome")
+        );
         assert_eq!(app_id(b"chromium\0Chromium\0").as_deref(), Some("chromium"));
         assert_eq!(app_id(b"Navigator\0firefox\0").as_deref(), Some("firefox"));
         assert_eq!(app_id(b"xterm\0XTerm\0").as_deref(), Some("xterm"));
-        assert_eq!(app_id(b"spentday-a\0SpentDayA\0").as_deref(), Some("SpentDayA"));
-        assert_eq!(app_id(b"org.gnome.Nautilus\0org.gnome.Nautilus\0").as_deref(), Some("org.gnome.Nautilus"));
+        assert_eq!(
+            app_id(b"spentday-a\0SpentDayA\0").as_deref(),
+            Some("SpentDayA")
+        );
+        assert_eq!(
+            app_id(b"org.gnome.Nautilus\0org.gnome.Nautilus\0").as_deref(),
+            Some("org.gnome.Nautilus")
+        );
         assert_eq!(app_id(b"\0\0"), None);
     }
 }

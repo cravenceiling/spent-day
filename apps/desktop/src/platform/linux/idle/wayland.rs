@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_registry, wl_seat};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
-use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::{self, ExtIdleNotificationV1};
+use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::{
+    self, ExtIdleNotificationV1,
+};
 use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notifier_v1::ExtIdleNotifierV1;
 
 /// The last input, once the compositor has said the user is idle.
@@ -30,7 +32,10 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 impl WaylandIdle {
     pub fn connect(threshold: Duration) -> Result<WaylandIdle, String> {
-        WaylandIdle::start(Connection::connect_to_env().map_err(|e| e.to_string())?, threshold)
+        WaylandIdle::start(
+            Connection::connect_to_env().map_err(|e| e.to_string())?,
+            threshold,
+        )
     }
 
     /// The setup round trips block, so they run on the thread that dispatches afterwards, and
@@ -38,7 +43,10 @@ impl WaylandIdle {
     /// whether anyone still waits for it.
     fn start(conn: Connection, threshold: Duration) -> Result<WaylandIdle, String> {
         let last_input = LastInput::default();
-        let mut state = State { last_input: last_input.clone(), threshold };
+        let mut state = State {
+            last_input: last_input.clone(),
+            threshold,
+        };
         let (ready, setup) = mpsc::sync_channel(0);
         let dispatch = conn.clone();
         thread::Builder::new()
@@ -63,7 +71,10 @@ impl WaylandIdle {
                 // Wakes the setup thread, so it ends instead of waiting on the compositor forever.
                 // SAFETY: shutdown(2) takes no pointers, and `conn` keeps the socket open.
                 unsafe { libc::shutdown(conn.as_fd().as_raw_fd(), libc::SHUT_RDWR) };
-                Err(format!("the compositor did not answer within {} s", SETUP_TIMEOUT.as_secs()))
+                Err(format!(
+                    "the compositor did not answer within {} s",
+                    SETUP_TIMEOUT.as_secs()
+                ))
             }
         }
     }
@@ -74,8 +85,12 @@ type Objects = (wl_seat::WlSeat, ExtIdleNotifierV1, ExtIdleNotificationV1);
 fn subscribe(conn: &Connection, state: &mut State) -> Result<(EventQueue<State>, Objects), String> {
     let (globals, mut queue) = registry_queue_init::<State>(conn).map_err(|e| e.to_string())?;
     let qh = queue.handle();
-    let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("wl_seat: {e}"))?;
-    let notifier: ExtIdleNotifierV1 = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("ext_idle_notifier_v1: {e}"))?;
+    let seat: wl_seat::WlSeat = globals
+        .bind(&qh, 1..=1, ())
+        .map_err(|e| format!("wl_seat: {e}"))?;
+    let notifier: ExtIdleNotifierV1 = globals
+        .bind(&qh, 1..=1, ())
+        .map_err(|e| format!("ext_idle_notifier_v1: {e}"))?;
     let millis = u32::try_from(state.threshold.as_millis()).unwrap_or(u32::MAX);
     let notification = notifier.get_idle_notification(millis, &seat, &qh, ());
     queue.roundtrip(state).map_err(|e| e.to_string())?;
@@ -100,7 +115,9 @@ impl Dispatch<ExtIdleNotificationV1, ()> for State {
     ) {
         let now = Instant::now();
         *state.last_input.lock().unwrap() = match event {
-            ext_idle_notification_v1::Event::Idled => Some(now.checked_sub(state.threshold).unwrap_or(now)),
+            ext_idle_notification_v1::Event::Idled => {
+                Some(now.checked_sub(state.threshold).unwrap_or(now))
+            }
             ext_idle_notification_v1::Event::Resumed => None,
             _ => return,
         };
@@ -134,8 +151,17 @@ mod tests {
         let started = Instant::now();
         let (done, result) = mpsc::channel();
         thread::spawn(move || done.send(WaylandIdle::start(conn, Duration::from_secs(180)).err()));
-        let result = result.recv_timeout(Duration::from_secs(4)).unwrap_or(Some("still waiting after 4 s".into()));
-        assert_eq!(result, Some("the compositor did not answer within 2 s".into()));
-        assert!(started.elapsed() < Duration::from_millis(2500), "took {:?}", started.elapsed());
+        let result = result
+            .recv_timeout(Duration::from_secs(4))
+            .unwrap_or(Some("still waiting after 4 s".into()));
+        assert_eq!(
+            result,
+            Some("the compositor did not answer within 2 s".into())
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(2500),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 }

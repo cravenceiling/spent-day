@@ -23,13 +23,18 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> Value {
-        let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/linux/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
     #[test]
     fn reads_the_class() {
-        assert_eq!(parse(&fixture("hyprctl-activewindow.json")), Some(Window { app_id: "firefox".into() }));
+        assert_eq!(
+            parse(&fixture("hyprctl-activewindow.json")),
+            Some(Window {
+                app_id: "firefox".into()
+            })
+        );
     }
 
     #[test]

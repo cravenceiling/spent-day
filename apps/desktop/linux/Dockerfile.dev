@@ -5,7 +5,7 @@ FROM rust:1.99.1-slim-trixie@sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config curl ca-certificates git \
-      libgtk-4-dev libadwaita-1-dev \
+      libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 mesa-vulkan-drivers libvulkan1 \
       xvfb xauth openbox xdotool xterm x11-utils imagemagick \
       chromium sway foot xwayland python3 sqlite3 nodejs gjs dbus-x11 dbus-user-session \
       fonts-cantarell fonts-dejavu-core adwaita-icon-theme librsvg2-common librsvg2-bin zip \
@@ -16,8 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # volume at /opt/cargo/registry, so cargo looks for it there.
 RUN chmod -R go-w "$CARGO_HOME" "$RUSTUP_HOME" && mkdir -m 755 /opt/cargo
 ENV CARGO_HOME=/opt/cargo
-
-RUN mkdir -p /root/.config/gtk-4.0 && printf '[Settings]\ngtk-font-name=Cantarell 11\n' > /root/.config/gtk-4.0/settings.ini
 
 RUN touch /.spentday-dev
 WORKDIR /src

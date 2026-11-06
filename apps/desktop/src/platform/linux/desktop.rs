@@ -25,16 +25,27 @@ pub struct Entries {
 
 impl Entries {
     pub fn new() -> Entries {
-        Entries::with(application_dirs(), langs(&env::var("LANG").unwrap_or_default()))
+        Entries::with(
+            application_dirs(),
+            langs(&env::var("LANG").unwrap_or_default()),
+        )
     }
 
     fn with(dirs: Vec<PathBuf>, langs: Vec<String>) -> Entries {
-        Entries { dirs, langs, index: None, cache: HashMap::new() }
+        Entries {
+            dirs,
+            langs,
+            index: None,
+            cache: HashMap::new(),
+        }
     }
 
     /// The entry's `Name`, or the id itself when no entry matches.
     pub fn name(&mut self, app_id: &str) -> String {
-        self.info(app_id).name.clone().unwrap_or_else(|| app_id.to_owned())
+        self.info(app_id)
+            .name
+            .clone()
+            .unwrap_or_else(|| app_id.to_owned())
     }
 
     /// First an exact `<id>.desktop`, then a case-insensitive file name or `StartupWMClass`
@@ -42,24 +53,45 @@ impl Entries {
     /// of a reverse-DNS file name, so the class `mousepad` finds `org.xfce.mousepad.desktop`.
     pub fn info(&mut self, app_id: &str) -> &Info {
         if !self.cache.contains_key(app_id) {
-            let exact = format!("{app_id}.desktop");
-            let path = self.dirs.iter().map(|d| d.join(&exact)).find(|p| p.is_file()).or_else(|| {
-                let dirs = &self.dirs;
-                self.index.get_or_insert_with(|| index(dirs)).get(&app_id.to_lowercase()).cloned()
-            });
-            let info = path.and_then(|p| read(&p, &self.langs)).unwrap_or_default();
+            let info = self
+                .path(app_id)
+                .and_then(|p| read(&p, &self.langs))
+                .unwrap_or_default();
             self.cache.insert(app_id.to_owned(), info);
         }
         &self.cache[app_id]
+    }
+
+    pub fn path(&mut self, app_id: &str) -> Option<PathBuf> {
+        let exact = format!("{app_id}.desktop");
+        self.dirs
+            .iter()
+            .map(|d| d.join(&exact))
+            .find(|p| p.is_file())
+            .or_else(|| {
+                let dirs = &self.dirs;
+                self.index
+                    .get_or_insert_with(|| index(dirs))
+                    .get(&app_id.to_lowercase())
+                    .cloned()
+            })
     }
 }
 
 fn application_dirs() -> Vec<PathBuf> {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let data_home = env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
-    let data_dirs = env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    let data_home = env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"));
+    let data_dirs =
+        env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
     let mut dirs = vec![data_home.clone()];
-    dirs.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from));
+    dirs.extend(
+        data_dirs
+            .split(':')
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from),
+    );
     // A `systemd --user` service may not inherit the session's XDG_DATA_DIRS.
     dirs.push(data_home.join("flatpak/exports/share"));
     dirs.push("/var/lib/flatpak/exports/share".into());
@@ -104,7 +136,10 @@ fn read(path: &Path, langs: &[String]) -> Option<Info> {
         .map(|s| s.to_string());
     Some(Info {
         name,
-        icon: keys.get("Icon").filter(|s| !s.is_empty()).map(|s| s.to_string()),
+        icon: keys
+            .get("Icon")
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string()),
         desktop_id: path.file_stem().map(|s| s.to_string_lossy().into_owned()),
     })
 }
@@ -121,9 +156,16 @@ fn index(dirs: &[PathBuf]) -> HashMap<String, PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
         .collect();
-    let stem = |path: &Path| path.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+    let stem = |path: &Path| {
+        path.file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase()
+    };
     for path in &files {
-        let class = fs::read_to_string(path).ok().and_then(|t| keys(&t).get("StartupWMClass").map(|c| c.to_lowercase()));
+        let class = fs::read_to_string(path)
+            .ok()
+            .and_then(|t| keys(&t).get("StartupWMClass").map(|c| c.to_lowercase()));
         for key in std::iter::once(stem(path)).chain(class) {
             index.entry(key).or_insert_with(|| path.clone());
         }
@@ -141,7 +183,8 @@ mod tests {
     use super::*;
 
     fn entries(lang: &str) -> Entries {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/applications");
+        let dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("linux/tests/fixtures/applications");
         Entries::with(vec![PathBuf::from("/nonexistent"), dir], langs(lang))
     }
 
@@ -160,12 +203,28 @@ mod tests {
     #[test]
     fn localized_name() {
         assert_eq!(entries("de_DE.UTF-8").name("org.gnome.Nautilus"), "Dateien");
-        assert_eq!(entries("pt_BR.UTF-8").name("org.gnome.Nautilus"), "Arquivos");
+        assert_eq!(
+            entries("pt_BR.UTF-8").name("org.gnome.Nautilus"),
+            "Arquivos"
+        );
     }
 
     #[test]
     fn x11_class_with_different_case() {
         assert_eq!(entries("C").name("Chromium"), "Chromium Web Browser");
+        let path = entries("C").path("Chromium").unwrap();
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .eq_ignore_ascii_case("chromium.desktop")
+        );
+        assert!(
+            std::fs::read_to_string(path)
+                .unwrap()
+                .contains("Name=Chromium Web Browser")
+        );
     }
 
     #[test]
@@ -183,12 +242,16 @@ mod tests {
     #[test]
     fn last_part_of_a_reverse_dns_name() {
         assert_eq!(entries("C").name("mousepad"), "Mousepad");
-        assert_eq!(entries("C").info("mousepad").icon.as_deref(), Some("org.xfce.mousepad"));
+        assert_eq!(
+            entries("C").info("mousepad").icon.as_deref(),
+            Some("org.xfce.mousepad")
+        );
     }
 
     #[test]
     fn unknown_id_is_its_own_name() {
         assert_eq!(entries("C").name("SpentDayA"), "SpentDayA");
         assert_eq!(entries("C").info("SpentDayA"), &Info::default());
+        assert_eq!(entries("C").path("SpentDayA"), None);
     }
 }

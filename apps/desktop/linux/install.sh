@@ -14,8 +14,13 @@ prefix="${PREFIX:-$HOME/.local}"
 config="${XDG_CONFIG_HOME:-$HOME/.config}"
 data="${XDG_DATA_HOME:-$HOME/.local/share}"
 target="${CARGO_TARGET_DIR:-target}"
+case "$target" in
+  /*) ;;
+  *) target="$(pwd)/../$target" ;;
+esac
+export CARGO_TARGET_DIR="$target"
 bin="$prefix/bin/spentday"
-# This script runs from apps/linux, so a relative PREFIX would install into the checkout.
+# This script runs from apps/desktop/linux, so a relative PREFIX would install into the checkout.
 case "$prefix" in
   /*) ;;
   *)
@@ -71,7 +76,7 @@ check_service_environment() {
   fi
 }
 
-cargo build --release --locked
+(cd .. && cargo build --release --locked)
 install -Dm755 "$target/release/spentday" "$bin"
 install_desktop data/day.spent.SpentDay.desktop "$prefix/share/applications/day.spent.SpentDay.desktop"
 install -Dm644 data/icons/day.spent.SpentDay.svg "$prefix/share/icons/hicolor/scalable/apps/day.spent.SpentDay.svg"

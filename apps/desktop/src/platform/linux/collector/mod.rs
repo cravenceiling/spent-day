@@ -28,7 +28,9 @@ fn take_focus_name(conn: &zbus::blocking::Connection) -> Result<(), String> {
         Ok(_) | Err(zbus::Error::NameTaken) => Err(format!(
             "Another program holds the session bus name {FOCUS_NAME}. Quit any other copy of Spent Day, then start it again."
         )),
-        Err(e) => Err(format!("Could not take the session bus name {FOCUS_NAME}. {e}")),
+        Err(e) => Err(format!(
+            "Could not take the session bus name {FOCUS_NAME}. {e}"
+        )),
     }
 }
 
@@ -41,7 +43,9 @@ pub struct Window {
 
 impl Window {
     fn new(app_id: &str) -> Option<Window> {
-        (!app_id.is_empty()).then(|| Window { app_id: app_id.to_owned() })
+        (!app_id.is_empty()).then(|| Window {
+            app_id: app_id.to_owned(),
+        })
     }
 }
 
@@ -74,7 +78,11 @@ impl Kind {
 
     /// `SPENTDAY_COLLECTOR` wins. Otherwise the session's own variables decide.
     pub fn detect() -> Option<Kind> {
-        if let Some(kind) = env::var("SPENTDAY_COLLECTOR").ok().as_deref().and_then(Kind::parse) {
+        if let Some(kind) = env::var("SPENTDAY_COLLECTOR")
+            .ok()
+            .as_deref()
+            .and_then(Kind::parse)
+        {
             return Some(kind);
         }
         let set = |name: &str| env::var_os(name).is_some_and(|v| !v.is_empty());
@@ -87,7 +95,9 @@ impl Kind {
         if set("HYPRLAND_INSTANCE_SIGNATURE") {
             return Some(Kind::Hyprland);
         }
-        let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase();
+        let desktop = env::var("XDG_CURRENT_DESKTOP")
+            .unwrap_or_default()
+            .to_uppercase();
         if desktop.split(':').any(|d| d == "GNOME") {
             return Some(Kind::Gnome);
         }
@@ -156,7 +166,10 @@ fn kill(program: &str, mut child: Child) -> String {
     // SAFETY: kill(2) takes no pointers. A negative pid names the process group.
     unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
     let _ = child.wait();
-    format!("{program} did not answer within {} s", COMMAND_TIMEOUT.as_secs())
+    format!(
+        "{program} did not answer within {} s",
+        COMMAND_TIMEOUT.as_secs()
+    )
 }
 
 #[cfg(test)]
@@ -166,15 +179,29 @@ mod tests {
 
     #[test]
     fn reads_large_output() {
-        let value = run_json("sh", &["-c", "printf '{\"pad\": \"'; head -c 300000 /dev/zero | tr '\\0' x; printf '\"}'"]).unwrap();
+        let value = run_json(
+            "sh",
+            &[
+                "-c",
+                "printf '{\"pad\": \"'; head -c 300000 /dev/zero | tr '\\0' x; printf '\"}'",
+            ],
+        )
+        .unwrap();
         assert_eq!(value["pad"].as_str().map(str::len), Some(300_000));
     }
 
     #[test]
     fn kills_a_command_that_hangs() {
         let started = Instant::now();
-        assert_eq!(run_json("sh", &["-c", "sleep 30"]), Err("sh did not answer within 1 s".to_owned()));
-        assert!(started.elapsed() < Duration::from_secs(3), "took {:?}", started.elapsed());
+        assert_eq!(
+            run_json("sh", &["-c", "sleep 30"]),
+            Err("sh did not answer within 1 s".to_owned())
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -183,9 +210,19 @@ mod tests {
         let pid_file = dir.path().join("pid");
         let script = format!("sleep 4 & echo $! > {}; printf '{{}}'", pid_file.display());
         let started = Instant::now();
-        assert_eq!(run_json("sh", &["-c", &script]), Err("sh did not answer within 1 s".to_owned()));
-        assert!(started.elapsed() < Duration::from_millis(1200), "took {:?}", started.elapsed());
-        let stat = format!("/proc/{}/stat", fs::read_to_string(&pid_file).unwrap().trim());
+        assert_eq!(
+            run_json("sh", &["-c", &script]),
+            Err("sh did not answer within 1 s".to_owned())
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(1200),
+            "took {:?}",
+            started.elapsed()
+        );
+        let stat = format!(
+            "/proc/{}/stat",
+            fs::read_to_string(&pid_file).unwrap().trim()
+        );
         let gone = || fs::read_to_string(&stat).map_or(true, |state| state.contains(") Z "));
         let killed_by = Instant::now() + Duration::from_millis(500);
         while !gone() && Instant::now() < killed_by {
@@ -196,6 +233,9 @@ mod tests {
 
     #[test]
     fn reports_a_failing_command() {
-        assert_eq!(run_json("sh", &["-c", "exit 3"]), Err("sh exited with exit status: 3".to_owned()));
+        assert_eq!(
+            run_json("sh", &["-c", "exit 3"]),
+            Err("sh exited with exit status: 3".to_owned())
+        );
     }
 }

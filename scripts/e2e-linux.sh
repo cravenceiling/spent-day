@@ -1,6 +1,6 @@
 #!/bin/sh
 # The Linux half of scripts/e2e-cross-device.sh. Runs inside the spentday-linux-dev container
-# (apps/linux/Dockerfile.dev), one step per `docker exec`:
+# (apps/desktop/linux/Dockerfile.dev), one step per `docker exec`:
 #
 #   e2e-linux.sh build                   builds the app and spentday-cli
 #   e2e-linux.sh desktop                 starts Xvfb, openbox and a session bus
@@ -17,7 +17,8 @@ spentday="$target/debug/spentday"
 cli="$target/debug/spentday-cli"
 mkdir -p "$state"
 [ -f "$state/env" ] && . "$state/env"
-export GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 LANG=C.UTF-8
+export LANG=C.UTF-8
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.json}"
 
 fail() { echo "FAIL: linux: $*" >&2; exit 1; }
 
@@ -35,7 +36,7 @@ stop() {
 
 case "$1" in
 build)
-  (cd /src/apps/linux && cargo build --quiet --locked)
+  (cd /src/apps/desktop && cargo build --quiet --locked)
   (cd /src && cargo build --quiet --locked -p spentday-cli)
   ls -l "$spentday" "$cli"
   ;;
@@ -78,10 +79,10 @@ cli)
   ;;
 shot)
   SPENTDAY_DB="$db" daemon window "$spentday"
-  xdotool search --sync --onlyvisible --name '^Spent Day$' >/dev/null
+  xdotool search --sync --onlyvisible --all --pid "$(cat "$state/spentday.pid")" --name '^Spent Day$' >/dev/null
   sleep 3
   import -window root "$2"
-  xdotool key Escape
+  xdotool key ctrl+w
   stop window
   ;;
 *)
