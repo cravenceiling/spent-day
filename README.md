@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/linux/data/icons/day.spent.SpentDay.svg" alt="" width="88" height="88">
+  <img src="apps/desktop/linux/data/icons/day.spent.SpentDay.svg" alt="" width="88" height="88">
 </p>
 
 <h1 align="center">Spent Day</h1>
@@ -16,45 +16,45 @@
 </p>
 
 <p align="center">
-  <img src="apps/macos/screenshots/dashboard-day-demo.png" alt="The macOS day treemap across three devices" height="320">
-  <img src="apps/linux/screenshots/dashboard-day-demo.png" alt="The Linux day treemap across three devices" height="320">
+  <img src="apps/desktop/screenshots/macos/dashboard-day-demo.png" alt="The macOS day treemap across three devices" height="320">
+  <img src="apps/desktop/screenshots/linux/dashboard-day-demo.png" alt="The Linux day treemap across three devices" height="320">
   <img src="apps/android/screenshots/dashboard.png" alt="The Android dashboard" height="320">
 </p>
 
 Spent Day records which app, and which website, is in front of you on your Mac, your Linux machine and your Android phone. Sync puts them all on one dashboard. If your browser had 2 hours today, Spent Day shows how much of that went to YouTube, GitHub or the news.
 
 - **All your devices.** Every device shows one dashboard with the time from all of them.
-- **Sites, not just apps.** Browser time is split by domain. Private and incognito windows aren't recorded.
+- **Sites, not just apps.** Browser time is split by domain. Private windows report no site. Safari sites stay off unless enabled, because Safari cannot identify private windows.
 - **Nothing you didn't ask for.** It keeps app names, domains, times and device names. Never a full web address, a page title or a window title.
 - **Your server, your key.** Sync encrypts everything with a code only your devices have. The server can't read it.
-- **Native apps.** SwiftUI on macOS, GTK 4 and libadwaita on Linux, Jetpack Compose on Android, all on one Rust core.
+- **Desktop and Android.** One Rust desktop app on Rune for macOS and Linux, and Jetpack Compose on Android, share the Rust core.
 
-## Get started
+## Desktop app
 
-Building from source needs [Rust](https://rustup.rs) stable. There's no iOS app, because Apple doesn't let apps export Screen Time data, and no Windows app yet.
+The [desktop guide](apps/desktop/README.md) covers macOS 14 or later on Apple Silicon and Linux on GNOME, KDE, Sway, Hyprland and X11. Building needs [Rust](https://rustup.rs) stable and a C compiler. macOS also needs Apple's Command Line Tools. Linux needs pkg-config, libxkbcommon and Wayland development files, plus a Vulkan driver to render.
 
-| Platform | You need | Guide |
-|---|---|---|
-| macOS 14 or later | Apple Silicon, Xcode 16 or its Command Line Tools | [apps/macos](apps/macos/README.md) |
-| Linux | GTK 4.18 and libadwaita 1.7. Works on GNOME, KDE, Sway, Hyprland and X11 | [apps/linux](apps/linux/README.md) |
-| Android 8 or later | JDK 21, the Android SDK and NDK | [apps/android](apps/android/README.md) |
-| Browser extension | Firefox on macOS, and every browser on Linux | [extension](extension/README.md) |
-
-On a Mac:
+On macOS, from the repository root:
 
 ```sh
-git clone https://github.com/cravenceiling/spent-day && cd spent-day
-apps/macos/make-dev-cert.sh   # once, so permissions survive rebuilds
-apps/macos/build.sh && apps/macos/install.sh
+apps/desktop/macos/make-dev-cert.sh   # optional stable local signing identity
+apps/desktop/macos/bundle.sh
+apps/desktop/macos/install.sh
 ```
 
-On Linux, after installing the GTK and libadwaita development files:
+On Debian 13 or Ubuntu with recent Mesa:
 
 ```sh
-apps/linux/install.sh
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 mesa-vulkan-drivers libvulkan1
+apps/desktop/linux/install.sh
 ```
+
+macOS starts in the menu bar, with onboarding on the first launch. Linux opens the dashboard. Closing the dashboard keeps tracking. `--background` or `-b` starts without a window; `--dashboard` opens it; `--settings` opens its Settings overlay; `--day YYYY-MM-DD` selects a date, with invalid dates falling back to today. `--demo` uses sample data without opening the database or starting tracking, the extension listener or automatic sync. The last launch flag wins. Use Quit Spent Day or Cmd/Ctrl+Q to stop and flush tracking.
 
 To sync, run [`spentday-server`](server/README.md) behind HTTPS, create a sync code on one device, and join with it on the others.
+
+## Android and browser extension
+
+[Android 8 or later](apps/android/README.md) needs JDK 21, the Android SDK and NDK. The [browser extension](extension/README.md) reports sites for Firefox on macOS and browsers on Linux. There's no Windows app yet. Apple does not let iOS apps export Screen Time data.
 
 ## Releases
 
@@ -63,9 +63,9 @@ To sync, run [`spentday-server`](server/README.md) behind HTTPS, create a sync c
 - `SpentDay-<version>-arm64.dmg` for Apple Silicon Macs. Open it and drag Spent Day to Applications. The app is not notarized. After the first blocked launch, open System Settings > Privacy & Security > Open Anyway, then confirm the launch. Repeat this after every download, including updates.
 - `spentday-<version>-1-x86_64.pkg.tar.zst` for Arch Linux. Install with `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst`. Run `systemctl --user enable --now spentday.service` as your desktop user to start Spent Day now and at login. Alternatively, run `mkdir -p ~/.config/autostart` and copy `/usr/share/applications/day.spent.SpentDay-autostart.desktop` to `~/.config/autostart/day.spent.SpentDay.desktop`, then run `spentday --background` to start it now. On GNOME, log out and back in, then run `gnome-extensions enable spentday@spent.day`. On KDE, enable Spent Day Focus in System Settings > Window Management > KWin Scripts, then log out and back in. After updates, log out and back in to reload either helper.
 
-To cut a release, set the same version in `apps/macos/Info.plist`, `apps/linux/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds both downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload the two downloads as workflow artifacts without publishing a release.
+To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds both downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload the two downloads as workflow artifacts without publishing a release.
 
-Set up the [release signing secrets](apps/macos/README.md#release-signing) once so macOS Automation grants survive updates.
+Set up the [release signing secrets](apps/desktop/README.md#release-signing) once so macOS Automation grants survive updates.
 
 ## Docs
 
@@ -77,8 +77,9 @@ Set up the [release signing secrets](apps/macos/README.md#release-signing) once 
 
 | Path | What it is |
 |---|---|
-| [`core/`](core/README.md) | Rust core for storage, summaries, website attribution and sync. Swift and Kotlin call it through UniFFI. |
-| [`apps/`](apps) | The macOS, Linux and Android apps. |
+| [`core/`](core/README.md) | Rust core for storage, summaries, website attribution and sync. The desktop app links it directly; Kotlin calls it through UniFFI. |
+| [`apps/desktop/`](apps/desktop/README.md) | One Rust app on Rune for macOS and Linux. |
+| [`apps/android/`](apps/android/README.md) | Kotlin and Jetpack Compose app. |
 | [`extension/`](extension/README.md) | WebExtension for Chrome and Firefox. |
 | [`server/`](server/README.md) | Self-hosted sync server that stores encrypted batches only. |
 | [`cli/`](cli/README.md) | `spentday-cli`, to inspect a database, simulate a device, or sync from a terminal. |

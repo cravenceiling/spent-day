@@ -1,4 +1,4 @@
-// The skeleton declares contracts that later units fill in; unit 6 removes this allow.
+// Other units still have unused stub contracts; remove this after their implementations merge.
 #![allow(dead_code)]
 
 mod app;
@@ -28,7 +28,7 @@ fn parse(argv: impl IntoIterator<Item = String>) -> Opts {
         demo: false,
         rune: Vec::new(),
     };
-    let mut argv = argv.into_iter();
+    let mut argv = argv.into_iter().peekable();
     while let Some(arg) = argv.next() {
         match arg.as_str() {
             "--background" | "-b" => opts.launch = Launch::Background,
@@ -36,7 +36,13 @@ fn parse(argv: impl IntoIterator<Item = String>) -> Opts {
             "--settings" => opts.launch = Launch::Settings,
             "--demo" => opts.demo = true,
             // A bad date shows today.
-            "--day" => opts.day = argv.next().and_then(|d| d.parse().ok()),
+            "--day" => {
+                opts.day = Some(
+                    argv.next_if(|value| !value.starts_with('-'))
+                        .and_then(|d| d.parse().ok())
+                        .unwrap_or_else(|| day::today(&jiff::tz::TimeZone::system())),
+                );
+            }
             _ => opts.rune.push(arg),
         }
     }
@@ -69,6 +75,47 @@ mod tests {
         assert_eq!(opts.day, Some(date(2026, 10, 28)));
         assert_eq!(opts.launch, Launch::Background);
         assert_eq!(opts.rune, ["--snap", "out.png", "--scene", "day"]);
-        assert_eq!(parse(["--day", "28/10/2026"].map(String::from)).day, None);
+        assert_eq!(
+            parse(["--day", "28/10/2026"].map(String::from)).day,
+            Some(crate::day::today(&jiff::tz::TimeZone::system()))
+        );
+    }
+
+    #[test]
+    fn last_launch_flag_wins() {
+        for (args, expected) in [
+            (vec![], Launch::Default),
+            (vec!["--background"], Launch::Background),
+            (vec!["-b"], Launch::Background),
+            (vec!["-b", "--dashboard"], Launch::Dashboard),
+            (vec!["--dashboard", "--settings"], Launch::Settings),
+            (vec!["--settings", "--background"], Launch::Background),
+        ] {
+            assert_eq!(parse(args.into_iter().map(String::from)).launch, expected);
+        }
+    }
+
+    #[test]
+    fn missing_or_invalid_day_keeps_following_flags() {
+        let today = Some(crate::day::today(&jiff::tz::TimeZone::system()));
+        for value in ["2026-02-30", "not-a-day", "2026-13-01"] {
+            assert_eq!(parse(["--day", value].map(String::from)).day, today);
+        }
+        assert_eq!(parse(["--day".into()]).day, today);
+        let opts = parse(["--day", "--settings", "--tree", "out.json"].map(String::from));
+        assert_eq!(opts.day, today);
+        assert_eq!(opts.launch, Launch::Settings);
+        assert_eq!(opts.rune, ["--tree", "out.json"]);
+        assert_eq!(
+            parse(["--demo", "--day", "bad"].map(String::from)).day,
+            today
+        );
+    }
+
+    #[test]
+    fn unknown_flags_and_values_keep_their_order() {
+        let opts = parse(["--future", "value", "--demo", "--window", "fatal"].map(String::from));
+        assert!(opts.demo);
+        assert_eq!(opts.rune, ["--future", "value", "--window", "fatal"]);
     }
 }
