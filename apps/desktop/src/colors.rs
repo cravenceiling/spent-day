@@ -53,21 +53,6 @@ impl Rgb {
             Self::WHITE
         }
     }
-    pub fn dimmed(self, dark: bool) -> Self {
-        let background = Self::hex(if dark { 0x161618 } else { 0xf7f7f9 });
-        for step in (0..=20).rev() {
-            let t = step as f64 * 0.02;
-            let color = Self {
-                r: self.r + (background.r - self.r) * t,
-                g: self.g + (background.g - self.g) * t,
-                b: self.b + (background.b - self.b) * t,
-            };
-            if color.contrast(self.ink()) >= 4.5 {
-                return color;
-            }
-        }
-        self
-    }
     pub fn lch(self) -> Lch {
         let (r, g, b) = (
             Self::linear(self.r),
@@ -85,65 +70,11 @@ impl Rgb {
             h: q.atan2(a).to_degrees(),
         }
     }
-    fn lab(self) -> [f64; 3] {
-        let (r, g, b) = (
-            Self::linear(self.r),
-            Self::linear(self.g),
-            Self::linear(self.b),
-        );
-        let f = |v: f64| {
-            if v > 0.008856 {
-                v.cbrt()
-            } else {
-                7.787 * v + 16. / 116.
-            }
-        };
-        let x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
-        let y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
-        let z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
-        [116. * y - 16., 500. * (x - y), 200. * (y - z)]
-    }
-    pub fn delta_e(self, other: Self) -> f64 {
-        self.lab()
-            .into_iter()
-            .zip(other.lab())
-            .map(|(a, b)| (a - b).powi(2))
-            .sum::<f64>()
-            .sqrt()
-    }
 }
 impl Lch {
-    pub fn tuned(self, dark: bool) -> Self {
-        Self {
-            l: self.l.clamp(
-                if dark { 0.56 } else { 0.68 },
-                if dark { 0.76 } else { 0.80 },
-            ),
-            c: (self.c * 0.8).min(0.17),
-            h: self.h,
-        }
-    }
     pub fn rgb(self) -> Rgb {
-        let mut chroma = self.c;
-        let linear = loop {
-            let (a, b) = (
-                chroma * self.h.to_radians().cos(),
-                chroma * self.h.to_radians().sin(),
-            );
-            let x = (self.l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
-            let y = (self.l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
-            let z = (self.l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
-            let linear = [
-                4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z,
-                -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z,
-                -0.0041960863 * x - 0.7034186147 * y + 1.7076147010 * z,
-            ];
-            chroma = (chroma - 0.004).max(0.);
-            if chroma <= 0. || linear.iter().all(|v| *v >= -0.0005 && *v <= 1.0005) {
-                break linear;
-            }
-        };
-        let [r, g, b] = linear.map(|v| {
+        let fitted = fit(self);
+        let [r, g, b] = fitted.linear().map(|v| {
             let v = v.clamp(0., 1.);
             if v <= 0.0031308 {
                 12.92 * v
@@ -153,7 +84,83 @@ impl Lch {
         });
         Rgb { r, g, b }
     }
+
+    fn linear(self) -> [f64; 3] {
+        let (sin, cos) = self.h.to_radians().sin_cos();
+        let (a, b) = (self.c * cos, self.c * sin);
+        let x = (self.l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+        let y = (self.l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+        let z = (self.l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+        [
+            4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z,
+            -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z,
+            -0.0041960863 * x - 0.7034186147 * y + 1.7076147010 * z,
+        ]
+    }
 }
+
+pub fn lch(l: f64, c: f64, h: f64) -> Lch {
+    Lch {
+        l,
+        c,
+        h: h.rem_euclid(360.),
+    }
+}
+
+pub fn in_gamut(color: Lch) -> bool {
+    color.linear().iter().all(|v| (-1e-4..=1.0001).contains(v))
+}
+
+pub fn max_chroma(l: f64, h: f64) -> f64 {
+    let (mut lo, mut hi) = (0., 0.5);
+    for _ in 0..30 {
+        let middle = (lo + hi) / 2.;
+        if in_gamut(lch(l, middle, h)) {
+            lo = middle;
+        } else {
+            hi = middle;
+        }
+    }
+    lo
+}
+
+pub fn cusp(h: f64) -> (f64, f64) {
+    let mut best = (0.5, 0.);
+    for i in 20..=98 {
+        let l = f64::from(i) / 100.;
+        let c = max_chroma(l, h);
+        if c > best.1 {
+            best = (l, c);
+        }
+    }
+    best
+}
+
+/// Cut chroma at fixed lightness and hue instead of clipping RGB channels.
+pub fn fit(color: Lch) -> Lch {
+    Lch {
+        c: color.c.min(max_chroma(color.l, color.h)),
+        ..color
+    }
+}
+
+pub fn ok_distance(a: Lch, b: Lch) -> f64 {
+    let coordinates = |color| {
+        let color = fit(color);
+        [
+            color.l,
+            color.c * color.h.to_radians().cos(),
+            color.c * color.h.to_radians().sin(),
+        ]
+    };
+    coordinates(a)
+        .into_iter()
+        .zip(coordinates(b))
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
 pub fn hashed(key: &str) -> Lch {
     let hash = key
         .bytes()
@@ -198,86 +205,43 @@ pub fn dominant(pixels: impl IntoIterator<Item = (Rgb, f64)>) -> Option<Lch> {
         .lch()
     })
 }
-pub fn separate(
-    seeds: impl IntoIterator<Item = (String, Lch)>,
-    dark: bool,
-) -> HashMap<String, Rgb> {
-    let mut placed = Vec::new();
+/// Input order is the day's total-time rank. Each list is ordered by preference.
+pub fn separate(candidates: impl IntoIterator<Item = (String, Vec<Lch>)>) -> HashMap<String, Lch> {
+    let mut placed: Vec<Lch> = Vec::new();
     let mut result = HashMap::new();
-    for (key, seed) in seeds {
-        if seed.c == 0. {
-            result.insert(key, seed.rgb());
-            continue;
-        }
-        let mut best = seed.rgb();
-        let mut best_distance = -1.;
-        let (lower, upper) = if dark { (0.56, 0.76) } else { (0.68, 0.80) };
-        for l in [
-            seed.l,
-            seed.l + 0.09,
-            seed.l - 0.09,
-            seed.l + 0.17,
-            seed.l - 0.17,
-            lower,
-            upper,
-        ] {
-            if l < lower || l > upper {
-                continue;
-            }
-            let candidate = Lch { l, ..seed }.rgb();
-            let distance = placed
+    for (key, candidates) in candidates {
+        let score = |candidate: &Lch| {
+            placed
                 .iter()
-                .map(|c| candidate.delta_e(*c))
-                .reduce(f64::min)
-                .unwrap_or(99.);
-            if distance > best_distance {
-                best = candidate;
-                best_distance = distance;
-            }
-            if distance >= 20. {
-                break;
-            }
-        }
-        result.insert(key, best);
-        placed.push(best);
+                .map(|p| ok_distance(*candidate, *p))
+                .fold(9., f64::min)
+        };
+        let pick = candidates
+            .iter()
+            .find(|c| score(c) >= 0.10)
+            .copied()
+            .unwrap_or_else(|| {
+                *candidates
+                    .iter()
+                    .max_by(|a, b| score(a).total_cmp(&score(b)))
+                    .expect("palette candidates")
+            });
+        placed.push(pick);
+        result.insert(key, pick);
     }
     result
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn literal_colors() {
         assert!((Rgb::BLACK.contrast(Rgb::WHITE) - 21.).abs() < 0.00001);
         let red = Rgb::hex(0xff0000);
         let roundtrip = red.lch().rgb();
         assert!((roundtrip.r - 1.).abs() < 0.001 && roundtrip.g < 0.001 && roundtrip.b < 0.001);
-        assert_eq!(
-            Lch {
-                l: 1.,
-                c: 1.,
-                h: 25.
-            }
-            .tuned(true),
-            Lch {
-                l: 0.76,
-                c: 0.17,
-                h: 25.
-            }
-        );
-        assert_eq!(
-            Lch {
-                l: 0.,
-                c: 1.,
-                h: 25.
-            }
-            .tuned(false),
-            Lch {
-                l: 0.68,
-                c: 0.17,
-                h: 25.
-            }
-        );
         assert_eq!(hashed("site:example.org").h, 110.);
         let sampled = dominant([
             (Rgb::WHITE, 1.),
@@ -289,77 +253,29 @@ mod tests {
         .unwrap();
         assert!((sampled.h - red.lch().h).abs() < 0.001);
         assert_eq!(dominant([(Rgb::WHITE, 1.), (Rgb::BLACK, 1.)]), None);
-        let neutral = Lch {
-            l: 0.32,
-            c: 0.,
-            h: 0.,
-        };
-        assert_eq!(
-            separate([("neutral".into(), neutral)], true)["neutral"],
-            neutral.rgb()
-        );
-        let same = Lch {
-            l: 0.56,
-            c: 0.12,
-            h: 250.,
-        };
-        let separated = separate([("large".into(), same), ("small".into(), same)], true);
-        assert_eq!(separated["large"], same.rgb());
-        assert!(separated["large"].delta_e(separated["small"]) >= 20.);
-        for dark in [true, false] {
-            let crowded = separate(
-                (0..12).map(|i| {
-                    (
-                        i.to_string(),
-                        Lch {
-                            l: if dark { 0.65 } else { 0.74 },
-                            c: 0.12,
-                            h: 250.,
-                        },
-                    )
-                }),
-                dark,
-            );
-            assert_eq!(crowded.len(), 12);
-            assert!(crowded.values().all(|c| {
-                let l = c.lch().l;
-                if dark {
-                    (0.559..=0.761).contains(&l)
-                } else {
-                    (0.679..=0.801).contains(&l)
-                }
-            }));
-        }
-        assert_eq!(
-            Lch {
-                l: 1.,
-                c: 0.1,
-                h: 250.
-            }
-            .tuned(false)
-            .l,
-            0.80
-        );
+        assert_eq!(cusp(258.).0, 0.60);
+        let fitted = fit(lch(0.53, 0.5, 258.));
+        assert!((fitted.c - 0.19640571530908346).abs() < 1e-12);
+        assert_eq!((fitted.l, fitted.h), (0.53, 258.));
+        assert!(in_gamut(fitted));
+        assert!(!in_gamut(lch(0.53, fitted.c + 0.001, 258.)));
+        assert!((ok_distance(lch(0.5, 0., 0.), lch(0.7, 0., 0.)) - 0.2).abs() < 1e-8);
     }
+
     #[test]
-    fn all_labels_pass_at_rest_and_dimmed() {
-        for dark in [true, false] {
-            for hue in (0..360).step_by(3) {
-                for lightness in 0..=13 {
-                    let color = Lch {
-                        l: 0.3 + lightness as f64 * 0.05,
-                        c: 0.17,
-                        h: hue as f64,
-                    }
-                    .tuned(dark)
-                    .rgb();
-                    assert!(
-                        color.contrast(color.ink()) >= 4.5
-                            && color.dimmed(dark).contrast(color.ink()) >= 4.5,
-                        "{dark} {hue} {lightness}"
-                    );
-                }
-            }
-        }
+    fn separation_prefers_first_clear_candidate_then_best_available() {
+        let a = lch(0.5, 0.08, 268.);
+        let b = lch(0.5, 0.075, 205.);
+        let c = lch(0.74, 0.07, 268.);
+        let separated = separate([
+            ("first".into(), vec![a, b, c]),
+            ("second".into(), vec![a, b, c]),
+            ("third".into(), vec![a, b, c]),
+        ]);
+        assert_eq!(separated["first"], a);
+        assert_eq!(separated["second"], c);
+        assert_eq!(separated["third"], b);
+        assert!(ok_distance(a, c) >= 0.10);
+        assert!(ok_distance(a, b) < 0.10);
     }
 }
