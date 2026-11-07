@@ -3,6 +3,25 @@ name = "spentday-desktop"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Screen time across your devices"
+
+[package.metadata.deb]
+name = "spentday"
+maintainer = "Spent Day contributors"
+copyright = "2026 Spent Day contributors"
+license-file = ["../../LICENSE", "0"]
+depends = "$auto, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, libx11-6, libx11-xcb1, libxcursor1, libxi6, hicolor-icon-theme"
+recommends = "mesa-vulkan-drivers"
+assets = [
+    ["target/release/spentday", "usr/bin/spentday", "755"],
+    ["linux/data/day.spent.SpentDay.desktop", "usr/share/applications/day.spent.SpentDay.desktop", "644"],
+    ["linux/data/icons/day.spent.SpentDay.svg", "usr/share/icons/hicolor/scalable/apps/day.spent.SpentDay.svg", "644"],
+    ["../../packaging/linux/build/spentday.service", "usr/lib/systemd/user/spentday.service", "644"],
+    ["linux/gnome-extension/metadata.json", "usr/share/gnome-shell/extensions/spentday@spent.day/metadata.json", "644"],
+    ["linux/gnome-extension/extension.js", "usr/share/gnome-shell/extensions/spentday@spent.day/extension.js", "644"],
+    ["linux/kwin-script/metadata.json", "usr/share/kwin/scripts/spentday-focus/metadata.json", "644"],
+    ["linux/kwin-script/contents/code/main.js", "usr/share/kwin/scripts/spentday-focus/contents/code/main.js", "644"],
+]
 
 [[bin]]
 name = "spentday"

@@ -5,6 +5,7 @@ target/
 *.db-shm
 .DS_Store
 build/
+/dist/
 .gradle/
 local.properties
 *.apk
