@@ -10,7 +10,7 @@ use crate::ui::treemap::{self, color};
 use crate::ui::{bg, details, kit, settings, strip};
 use crate::{day, palette, stats};
 use rune::{
-    Chord, Color, Cx, El, Icon, Shadow, TextStyle, Transition, Tx, col, el, icon, oklch, row, text,
+    Chord, Color, Cx, El, Icon, Shadow, TextStyle, Transition, col, el, icon, oklch, row, text,
 };
 use rune_kit::{Menu, MenuItem, Placement};
 use std::f32::consts::PI;
@@ -144,11 +144,7 @@ pub fn view(s: &Dash, cx: &mut Cx<Dash>) -> El {
         Overlay::Settings => overlays.push(settings::view(s, k)),
         Overlay::None | Overlay::Menu => {}
     }
-    rune_kit::root(base, overlays).on_window_focus(|d: &mut Dash, focused, tx: &mut Tx| {
-        if focused {
-            d.refresh(tx);
-        }
-    })
+    rune_kit::root(base, overlays)
 }
 
 fn icon_button(key: &str, glyph: &'static Icon, label: &str, page: &Page) -> El {

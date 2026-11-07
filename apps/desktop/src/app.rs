@@ -345,7 +345,10 @@ fn ticker(shared: Arc<Shared>) -> Sender<()> {
             if let Some(ui) = shared.ui.get()
                 && tick.is_multiple_of(3)
             {
-                ui.dash.update_if(|d, tx| d.refresh(tx));
+                // A closed window reloads when it is shown or focused again.
+                if ui.dash.is_visible() {
+                    ui.dash.update_if(|d, tx| d.refresh(tx));
+                }
                 if cfg!(target_os = "macos") && ui.panel.is_visible() {
                     ui.panel.update_if(Panel::refresh);
                 }
