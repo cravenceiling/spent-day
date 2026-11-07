@@ -87,33 +87,20 @@ pub fn run(opts: Opts) -> ExitCode {
     } else {
         "day.spent.SpentDay"
     });
-    let (store, core, startup_error): (Arc<dyn Store>, _, _) = if demo {
-        (Arc::new(Demo::new()), None, None)
-    } else {
-        match open_core() {
-            Ok(core) => (core.clone(), Some(core), None),
-            // The windows still need a store; the dashboard never opens.
-            Err(e) => (Arc::new(Demo::new()), None, Some(e)),
-        }
-    };
-    let shared = Arc::new(Shared {
-        store,
-        demo,
-        tz: TimeZone::system(),
-        icons: icons::Seeds::default(),
-        sync: Mutex::default(),
-        ui: OnceLock::new(),
-    });
+    let tz = TimeZone::system();
     let selected = opts.day.unwrap_or_else(|| {
         if demo {
             jiff::civil::date(2026, 10, 28)
         } else {
-            day::today(&shared.tz)
+            day::today(&tz)
         }
     });
+    // The windows come before the store, so a launch that forwards to the running app never
+    // opens the database. Their state is built in the loop, after `late` is set.
+    let late: Arc<OnceLock<Arc<Shared>>> = Arc::default();
 
     let dash_app = {
-        let shared = shared.clone();
+        let late = late.clone();
         let spec = AppSpec {
             scenes: scenes::DASH,
             on_key: Some(Dash::on_key),
@@ -127,7 +114,7 @@ pub fn run(opts: Opts) -> ExitCode {
         };
         App::new(spec)
             .args(opts.rune.clone())
-            .init(move || Dash::new(shared, selected))
+            .init(move || Dash::new(late.get().unwrap().clone(), selected))
             .windowless()
             .release_gpu_when_closed()
             .tab_visits_controls(true)
@@ -151,7 +138,7 @@ pub fn run(opts: Opts) -> ExitCode {
             })
     };
     let panel_app = {
-        let shared = shared.clone();
+        let late = late.clone();
         let spec = AppSpec {
             scenes: scenes::PANEL,
             on_key: Some(Panel::on_key),
@@ -159,7 +146,7 @@ pub fn run(opts: Opts) -> ExitCode {
         };
         App::new(spec)
             .args(opts.rune.clone())
-            .init(move || Panel::new(shared))
+            .init(move || Panel::new(late.get().unwrap().clone()))
             .windowless()
             .on_focus(|p, focused, tx| {
                 #[cfg(target_os = "macos")]
@@ -194,20 +181,19 @@ pub fn run(opts: Opts) -> ExitCode {
     #[cfg(target_os = "macos")]
     let panel = handles.panel.clone();
     let dash = handles.dash.clone();
-    let _ = shared.ui.set(handles);
+    let fatal = handles.fatal.clone();
 
-    let mut tracking = None;
-    let mut ticking = None;
+    let mut onboarding = None;
+    let mut show = false;
     let mut _instance = None;
     if !headless {
-        let onboarding = platform::read_pref(Pref::OnboardingDone);
-        let show = match opts.launch {
+        onboarding = platform::read_pref(Pref::OnboardingDone);
+        show = match opts.launch {
             Launch::Background => false,
             Launch::Dashboard | Launch::Settings => true,
             Launch::Default => cfg!(target_os = "linux") || onboarding == Some(false),
         };
-        let activate = dash.clone();
-        let fatal = shared.ui.get().unwrap().fatal.clone();
+        let (activate, fatal) = (dash.clone(), fatal.clone());
         let on_activate = Box::new(move |show: bool, token: String| {
             if show {
                 if FAILED.load(Ordering::Acquire) {
@@ -222,6 +208,31 @@ pub fn run(opts: Opts) -> ExitCode {
             Instance::Forwarded => return ExitCode::SUCCESS,
             Instance::Primary(guard) => _instance = Some(guard),
         }
+    }
+
+    let (store, core, startup_error): (Arc<dyn Store>, _, _) = if demo {
+        (Arc::new(Demo::new()), None, None)
+    } else {
+        match open_core() {
+            Ok(core) => (core.clone(), Some(core), None),
+            // The windows still need a store; the dashboard never opens.
+            Err(e) => (Arc::new(Demo::new()), None, Some(e)),
+        }
+    };
+    let shared = Arc::new(Shared {
+        store,
+        demo,
+        tz,
+        icons: icons::Seeds::default(),
+        sync: Mutex::default(),
+        ui: OnceLock::new(),
+    });
+    let _ = shared.ui.set(handles);
+    let _ = late.set(shared.clone());
+
+    let mut tracking = None;
+    let mut ticking = None;
+    if !headless {
         quit_on_signals(dash.clone());
         {
             let dash = dash.clone();
