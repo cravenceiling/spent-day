@@ -240,7 +240,12 @@ pub fn run(opts: Opts) -> ExitCode {
             dash.clone().update(move |_, _| {
                 #[cfg(target_os = "macos")]
                 platform::menu_bar(Box::new(move |rect| {
-                    PANEL.lock().unwrap().toggle(&panel, rect, panel::SIZE);
+                    // After a startup failure the store is the demo; only the fatal window opens.
+                    if FAILED.load(Ordering::Acquire) {
+                        fatal.open();
+                    } else {
+                        PANEL.lock().unwrap().toggle(&panel, rect, panel::SIZE);
+                    }
                 }));
                 platform::install_quit_handler(Box::new(move || dash.quit()));
             });
