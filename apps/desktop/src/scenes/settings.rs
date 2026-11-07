@@ -92,7 +92,7 @@ pub fn panel(s: &mut Panel) {
         jiff::civil::date(2026, 10, 28),
         &s.shared.tz,
     ));
-    s.palette = crate::palette::Palette::build(&detail, &s.shared.icons, true);
+    s.palette = crate::palette::Palette::build(&detail, &s.shared.icons, true, || {});
     s.total_ms = 49_800_000;
     s.sync.configured = true;
     s.rows = [

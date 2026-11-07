@@ -67,7 +67,7 @@ impl Panel {
                     .store
                     .day(q.clone())
                     .map_err(|e| crate::format::error("load today's total", &e))?;
-                let palette = Palette::build(&detail, &shared.icons, shared.demo);
+                let palette = Palette::build(&detail, &shared.icons, shared.demo, || {});
                 let summary = shared
                     .store
                     .summary(SummaryQuery {
