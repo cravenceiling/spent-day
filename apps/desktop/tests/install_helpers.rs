@@ -11,6 +11,7 @@ fn installs_helpers_with_temporary_home_and_xdg_directories() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir(&bin).unwrap();
     for (name, script) in [
+        ("gnome-shell", "echo GNOME Shell 45.0"),
         ("gnome-extensions", "exit 1"),
         (
             "kpackagetool6",
@@ -116,4 +117,61 @@ exit 1"#,
         )
     );
     assert!(calls.contains("org.kde.KWin /Scripting org.kde.kwin.Scripting.start\n"));
+}
+
+#[test]
+fn rejects_missing_tools_and_old_gnome_before_writing_helpers() {
+    for (desktop, programs) in [
+        ("GNOME", vec!["gnome-shell", "gnome-extensions"]),
+        ("KDE", vec!["kpackagetool6", "kwriteconfig6", "qdbus6"]),
+    ] {
+        for missing in &programs {
+            let temp = tempfile::tempdir().unwrap();
+            let bin = temp.path().join("bin");
+            let data = temp.path().join("data");
+            std::fs::create_dir(&bin).unwrap();
+            for program in &programs {
+                if program == missing {
+                    continue;
+                }
+                let path = bin.join(program);
+                std::fs::write(&path, "#!/bin/sh\necho GNOME Shell 45.0\n").unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let output = Command::new(env!("CARGO_BIN_EXE_spentday"))
+                .arg("--install-helpers")
+                .env("PATH", &bin)
+                .env("HOME", temp.path())
+                .env("XDG_DATA_HOME", &data)
+                .env("XDG_CURRENT_DESKTOP", desktop)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(error.contains(missing), "{error}");
+            assert!(error.contains("GNOME 45+ or Plasma 6"), "{error}");
+            assert!(!data.exists());
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    for program in ["gnome-shell", "gnome-extensions"] {
+        let path = temp.path().join(program);
+        std::fs::write(&path, "#!/bin/sh\necho GNOME Shell 42.9\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let data = temp.path().join("data");
+    let output = Command::new(env!("CARGO_BIN_EXE_spentday"))
+        .arg("--install-helpers")
+        .env("PATH", temp.path())
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CURRENT_DESKTOP", "GNOME")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("gnome-shell"), "{error}");
+    assert!(error.contains("42.9"), "{error}");
+    assert!(error.contains("GNOME 45+ or Plasma 6"), "{error}");
+    assert!(!data.exists());
 }

@@ -34,7 +34,45 @@ fn write_package(root: &Path, files: &[(&str, &str)]) -> io::Result<()> {
 
 pub fn install() -> io::Result<()> {
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let programs: &[&str] = if desktop.contains("GNOME") {
+        &["gnome-shell", "gnome-extensions"]
+    } else if desktop.contains("KDE") {
+        &["kpackagetool6", "kwriteconfig6", "qdbus6"]
+    } else {
+        return Err(io::Error::other(
+            "Run --install-helpers from a GNOME 45+ or Plasma 6 desktop session",
+        ));
+    };
+    // Emulated spawns can report missing commands as failed child exits.
+    let search_path = std::env::var_os("PATH").unwrap_or_else(|| "/bin:/usr/bin".into());
+    for program in programs {
+        if !std::env::split_paths(&search_path).any(|directory| directory.join(program).is_file()) {
+            return Err(io::Error::other(format!(
+                "Missing command {program}. Focus helpers require GNOME 45+ or Plasma 6"
+            )));
+        }
+    }
     if desktop.contains("GNOME") {
+        let output = Command::new("gnome-shell")
+            .arg("--version")
+            .output()
+            .map_err(|error| {
+                io::Error::other(format!(
+                    "gnome-shell: {error}. Focus helpers require GNOME 45+ or Plasma 6"
+                ))
+            })?;
+        let version = String::from_utf8_lossy(&output.stdout);
+        let major = version
+            .split_whitespace()
+            .last()
+            .and_then(|version| version.split('.').next())
+            .and_then(|major| major.parse::<u32>().ok());
+        if !output.status.success() || major.is_none_or(|major| major < 45) {
+            return Err(io::Error::other(format!(
+                "gnome-shell reported {:?}. Focus helpers require GNOME 45+ or Plasma 6",
+                version.trim()
+            )));
+        }
         let data = std::env::var_os("XDG_DATA_HOME")
             .filter(|value| !value.is_empty())
             .map(std::path::PathBuf::from)
@@ -107,48 +145,6 @@ pub fn install() -> io::Result<()> {
         {
             println!("Log out and back in to start the KWin script.");
         }
-    } else {
-        return Err(io::Error::other(
-            "Run --install-helpers from a GNOME or KDE desktop session",
-        ));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn embedded_packages_keep_the_installer_paths() {
-        let home = tempfile::tempdir().unwrap();
-        for data in [
-            home.path().join(".local/share"),
-            home.path().join("xdg-data"),
-        ] {
-            write_package(
-                &data.join("gnome-shell/extensions/spentday@spent.day"),
-                GNOME,
-            )
-            .unwrap();
-            write_package(&data.join("kwin/scripts/spentday-focus"), KWIN).unwrap();
-            for (path, expected) in [
-                (
-                    "gnome-shell/extensions/spentday@spent.day/metadata.json",
-                    GNOME[0].1,
-                ),
-                (
-                    "gnome-shell/extensions/spentday@spent.day/extension.js",
-                    GNOME[1].1,
-                ),
-                ("kwin/scripts/spentday-focus/metadata.json", KWIN[0].1),
-                (
-                    "kwin/scripts/spentday-focus/contents/code/main.js",
-                    KWIN[1].1,
-                ),
-            ] {
-                assert_eq!(std::fs::read_to_string(data.join(path)).unwrap(), expected);
-            }
-        }
-    }
 }
