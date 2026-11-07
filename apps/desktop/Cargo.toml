@@ -1,0 +1,47 @@
+[package]
+name = "spentday-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[[bin]]
+name = "spentday"
+path = "src/main.rs"
+
+# The event loop must own the main thread, so this test brings its own `main`.
+[[test]]
+name = "lifecycle"
+harness = false
+
+[dependencies]
+spentday-core = { path = "../../core" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
+jiff = "0.2"
+signal-hook = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+x11rb = { version = "0.13", features = ["screensaver"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["objc2-core-services"] }
+objc2-app-kit = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-io-kit = { version = "0.3", default-features = false, features = ["std", "pwr_mgt", "objc2"] }
+objc2-service-management = "0.3"
+
+[profile.release]
+lto = true
+strip = true
+
+[workspace]

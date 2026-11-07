@@ -6,11 +6,10 @@ Spent Day records which app (and which website) is in front of you on every devi
 
 | Path | What it is |
 |---|---|
-| `core/` | Rust crate `spentday-core`. Storage, span building, web attribution, summaries, sync client, crypto. Exposed to Swift and Kotlin through UniFFI, linked directly by the Linux app. |
+| `core/` | Rust crate `spentday-core`. Storage, span building, web attribution, summaries, sync client, crypto. Linked directly by the Rust desktop app; exposed to Kotlin through UniFFI. |
 | `server/` | Rust crate `spentday-server`. Dumb append-only store of encrypted batches. Self-hostable binary. |
 | `cli/` | Rust crate `spentday-cli`. Reads a Spent Day database and prints summaries as JSON. Used by every verification script. |
-| `apps/macos/` | Swift menu bar app (SwiftUI dashboard). |
-| `apps/linux/` | Rust GTK4 + libadwaita app. |
+| `apps/desktop/` | One Rust desktop app on Rune. macOS menu bar and Linux dashboard, with separate platform collectors. |
 | `apps/android/` | Kotlin + Jetpack Compose app. |
 | `extension/` | WebExtension (Chrome, Firefox) that reports the active tab to the desktop app on `127.0.0.1:7853`. |
 
@@ -82,7 +81,7 @@ Each device has ranked app and site items. A browser span with a domain belongs 
 
 Consecutive spans of the same item on one device merge into a session when their gap is at most 60 seconds. The session includes that short gap. An intervening item prevents merging. Item and device totals come from those sessions. `device_ms` sums device totals. `wall_ms` measures the union of all sessions across all devices, so the day view's headline counts overlapping time once. Details shows `device_ms - wall_ms` as time on two screens at once.
 
-The macOS day view passes local calendar midnight boundaries, including 23-hour and 25-hour days. Its weekday comparison averages the previous four matching weekdays with data and appears only with at least two samples. Today compares history only up to the current local time of day. The menu bar uses the same union total for today's headline. `summary()` keeps its existing per-screen counting rule.
+The desktop day view passes local calendar midnight boundaries, including 23-hour and 25-hour days. Its weekday comparison averages the previous four matching weekdays with data and appears only with at least two samples. Today compares history only up to the current local time of day. The menu bar uses the same union total for today's headline. `summary()` keeps its existing per-screen counting rule.
 
 ## Sync
 
@@ -114,7 +113,9 @@ GET  /health -> "ok"
 
 ## Platform collectors
 
-No platform keeps window titles or page titles. On Sway, the window tree the Linux collector reads includes every window's title. On Hyprland, the reply includes the focused window's title. The collector takes the app id and ignores the rest.
+One Rust desktop app links the core directly on macOS and Linux. Rune owns the dashboard, settings overlay, menu panel and fatal window. Each platform keeps its collector on worker threads. Closing the dashboard keeps tracking; Quit, SIGTERM and SIGINT return from the event loop before `Tracking::stop` flushes the open span.
+
+No platform keeps window titles or page titles. macOS AppleScript reads the front window id, its private flag where available, and its active tab URL, never its title. The core reduces the URL to its domain on receipt. On Sway, the window tree the Linux collector reads includes every window's title. On Hyprland, the reply includes the focused window's title. The collector takes the app id and ignores the rest.
 
 | Platform | App in front | Website | Away |
 |---|---|---|---|

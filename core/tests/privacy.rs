@@ -363,7 +363,7 @@ fn a_symlinked_folder_with_a_non_utf8_name_opens_the_same_file() {
     let real = root.path().join(std::ffi::OsStr::from_bytes(b"real-\xff"));
     if let Err(e) = std::fs::create_dir(&real) {
         // APFS refuses names that are not UTF-8. The Linux run in
-        // apps/linux/verify.sh covers this test.
+        // apps/desktop/linux/verify.sh covers this test.
         if cfg!(target_os = "macos") && e.raw_os_error() == Some(92) {
             eprintln!("skipped: this filesystem refuses non-UTF-8 names ({e})");
             return;

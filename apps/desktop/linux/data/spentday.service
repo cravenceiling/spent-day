@@ -1,0 +1,27 @@
+[Unit]
+Description=Spent Day screen time tracker
+PartOf=graphical-session.target
+After=graphical-session.target
+# Without a display Spent Day cannot start, so skip it instead of failing in a loop.
+ConditionEnvironment=|WAYLAND_DISPLAY
+ConditionEnvironment=|DISPLAY
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+ExecStart=%h/.local/bin/spentday --background
+Restart=on-failure
+RestartSec=5
+# Status 3 means the user closed a "Cannot Open the Database" or "Cannot Track Apps" dialog.
+# A restart would only show it again.
+RestartPreventExitStatus=3
+# Only settings a user manager can apply without a namespace. PrivateTmp= would hide the X11
+# socket in /tmp. ProtectSystem= needs a mount namespace, and Spent Day writes its database,
+# settings and caches under the home directory.
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cross-device sync with the three real apps. The macOS app, the Linux app in the dev container
-# (apps/linux/Dockerfile.dev) and the Android app on a headless emulator join one local
+# (apps/desktop/linux/Dockerfile.dev) and the Android app on a headless emulator join one local
 # spentday-server, record activity, and sync. Each database must end up with all three devices,
 # and each device's total for today must be the same in all three.
 #
@@ -126,12 +126,11 @@ pass "spentday-server on 0.0.0.0:$port, sync code ${code:0:4}-..."
 batches_from() { sqlite3 "$work/server.db" "select count(*) from batches where device_id = '$1'"; }
 
 step "build the macOS app"
-# The dev build reads SPENTDAY_DB. A normal build ignores it.
-"$root/apps/macos/build.sh" --dev >"$work/build-macos.log" 2>&1 || { tail -20 "$work/build-macos.log"; fail "apps/macos/build.sh --dev"; }
-cp -R "$root/apps/macos/build/dev/Spent Day.app" "$mac_app"
+"$root/apps/desktop/macos/bundle.sh" --dev >"$work/build-macos.log" 2>&1 || { tail -20 "$work/build-macos.log"; fail "apps/desktop/macos/bundle.sh --dev"; }
+cp -R "$root/apps/desktop/macos/build/dev/Spent Day.app" "$mac_app"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $mac_bundle_id" "$mac_app/Contents/Info.plist"
 codesign --force --sign - --timestamp=none --options runtime \
-  --entitlements "$root/apps/macos/SpentDay.entitlements" "$mac_app" 2>/dev/null
+  --entitlements "$root/apps/desktop/macos/SpentDay.entitlements" "$mac_app" 2>/dev/null
 [ "$(defaults read "$mac_app/Contents/Info" CFBundleIdentifier)" = "$mac_bundle_id" ] || fail "bundle id not changed"
 # The e2e copy's own defaults domain. Skipping onboarding keeps it from opening a window at launch.
 defaults write "$mac_bundle_id" onboardingDone -bool true
@@ -147,7 +146,7 @@ apk="$root/apps/android/app/build/outputs/apk/debug/app-debug.apk"
 pass "built $(basename "$apk")"
 
 step "build the Linux app in the dev container"
-docker build -q -t spentday-linux-dev -f "$root/apps/linux/Dockerfile.dev" "$root/apps/linux" >/dev/null
+docker build -q -t spentday-linux-dev -f "$root/apps/desktop/linux/Dockerfile.dev" "$root/apps/desktop/linux" >/dev/null
 docker run -d --init --name "$container" --hostname spentday-linux --add-host=host.docker.internal:host-gateway \
   -v "$root":/src:ro -v spentday-cargo:/opt/cargo/registry -v spentday-e2e-target:/target -e CARGO_TARGET_DIR=/target \
   spentday-linux-dev sleep infinity >/dev/null
@@ -172,7 +171,7 @@ pass "the Linux database joined sync"
 
 step "macOS: run the e2e app, join sync, switch apps"
 start_mac() {
-  env -u SPENTDAY_DEMO SPENTDAY_DB="$mac_db" "$mac_app/Contents/MacOS/SpentDay" "$@" >>"$work/mac.log" 2>&1 &
+  SPENTDAY_DB="$mac_db" "$mac_app/Contents/MacOS/SpentDay" "$@" >>"$work/mac.log" 2>&1 &
   mac_pid=$!
 }
 mac_devices() { "$cli" devices --json --db "$mac_db" 2>/dev/null; }

@@ -8,19 +8,7 @@ on:
       - '.github/workflows/release.yml'
       - 'packaging/**'
       - 'scripts/make-release-cert.sh'
-      - 'apps/macos/build.sh'
-      - 'apps/macos/core.sh'
-      - 'apps/macos/publish.sh'
-      - 'apps/macos/Info.plist'
-      - 'apps/macos/SpentDay.entitlements'
-      - 'apps/macos/Sources/**'
-      - 'apps/linux/install.sh'
-      - 'apps/linux/data/**'
-      - 'apps/linux/gnome-extension/**'
-      - 'apps/linux/kwin-script/**'
-      - 'apps/linux/Cargo.toml'
-      - 'apps/linux/Cargo.lock'
-      - 'apps/linux/src/**'
+      - 'apps/desktop/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'core/**'
@@ -49,15 +37,15 @@ jobs:
           import tomllib
           from pathlib import Path
 
-          with open("apps/macos/Info.plist", "rb") as file:
+          with open("apps/desktop/macos/Info.plist", "rb") as file:
               macos = plistlib.load(file)["CFBundleShortVersionString"]
-          with open("apps/linux/Cargo.toml", "rb") as file:
-              linux = tomllib.load(file)["package"]["version"]
+          with open("apps/desktop/Cargo.toml", "rb") as file:
+              desktop = tomllib.load(file)["package"]["version"]
           arch = re.search(r"^pkgver=(.+)$", Path("packaging/arch/PKGBUILD").read_text(), re.M)[1]
-          if not macos == linux == arch:
-              raise SystemExit(f"Version mismatch: macOS={macos}, Linux={linux}, PKGBUILD={arch}")
+          if not macos == desktop == arch:
+              raise SystemExit(f"Version mismatch: macOS={macos}, desktop={desktop}, PKGBUILD={arch}")
           if os.environ["GITHUB_REF_TYPE"] == "tag" and os.environ["GITHUB_REF_NAME"] != f"v{macos}":
-              raise SystemExit(f"Tag {os.environ['GITHUB_REF_NAME']} must be v{macos}, matching Info.plist and apps/linux/Cargo.toml")
+              raise SystemExit(f"Tag {os.environ['GITHUB_REF_NAME']} must be v{macos}, matching Info.plist and apps/desktop/Cargo.toml")
           with open(os.environ["GITHUB_OUTPUT"], "a") as file:
               file.write(f"version={macos}\n")
 
@@ -77,7 +65,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: macos-cargo-${{ hashFiles('Cargo.lock') }}
+          key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: macos-cargo-
       - name: Use ad-hoc signing for pull requests
         if: github.event_name == 'pull_request'
@@ -118,9 +106,9 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           rustup target add aarch64-apple-darwin
-          apps/macos/build.sh
+          apps/desktop/macos/bundle.sh
           mkdir -p "$RUNNER_TEMP/dmg" dist
-          ditto 'apps/macos/build/Spent Day.app' "$RUNNER_TEMP/dmg/Spent Day.app"
+          ditto 'apps/desktop/macos/build/Spent Day.app' "$RUNNER_TEMP/dmg/Spent Day.app"
           ln -s /Applications "$RUNNER_TEMP/dmg/Applications"
           for attempt in 1 2 3; do
             if hdiutil create -volname 'Spent Day' -srcfolder "$RUNNER_TEMP/dmg" \
@@ -159,7 +147,7 @@ jobs:
       contents: read
     steps:
       - name: Install build tools
-        run: pacman -Syu --noconfirm --needed base-devel git rust gtk4 libadwaita
+        run: pacman -Syu --noconfirm --needed base-devel git rust libxkbcommon libxkbcommon-x11 wayland vulkan-icd-loader libx11 libxcursor libxi hicolor-icon-theme
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -168,7 +156,7 @@ jobs:
           path: |
             /home/builder/.cargo/registry
             /home/builder/.cargo/git
-          key: arch-cargo-${{ hashFiles('apps/linux/Cargo.lock') }}
+          key: arch-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: arch-cargo-
       - name: Build package as an unprivileged user
         shell: bash
