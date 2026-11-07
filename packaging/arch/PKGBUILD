@@ -7,7 +7,9 @@ url='https://github.com/cravenceiling/spent-day'
 license=('MIT')
 # Rust's LLVM linker cannot read GCC LTO objects from ring and bundled SQLite.
 options=('!debug' '!lto')
-depends=('glibc' 'libgcc' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'vulkan-icd-loader' 'hicolor-icon-theme')
+# winit loads Xlib, Xlib-xcb, Xcursor and XInput2 with dlopen, so ldd doesn't list them.
+depends=('glibc' 'libgcc' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'libx11' 'libxcursor' 'libxi'
+         'vulkan-icd-loader' 'hicolor-icon-theme')
 makedepends=('rust' 'pkgconf')
 optdepends=('gnome-shell: GNOME Wayland focus tracking'
             'kwin: KDE Wayland focus tracking'

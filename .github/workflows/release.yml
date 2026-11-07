@@ -147,7 +147,7 @@ jobs:
       contents: read
     steps:
       - name: Install build tools
-        run: pacman -Syu --noconfirm --needed base-devel git rust libxkbcommon wayland vulkan-icd-loader
+        run: pacman -Syu --noconfirm --needed base-devel git rust libxkbcommon libxkbcommon-x11 wayland vulkan-icd-loader libx11 libxcursor libxi hicolor-icon-theme
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

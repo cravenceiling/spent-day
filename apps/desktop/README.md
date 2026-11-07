@@ -19,13 +19,13 @@ apps/desktop/macos/install.sh
 On Debian 13 or Ubuntu with recent Mesa:
 
 ```sh
-sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 mesa-vulkan-drivers libvulkan1
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcursor1 libxi6 mesa-vulkan-drivers libvulkan1
 apps/desktop/linux/install.sh
 # Or install a systemd user service instead of an autostart entry:
 apps/desktop/linux/install.sh --systemd
 ```
 
-Linux needs a Vulkan driver. Mesa lavapipe supports machines without a GPU; use trixie or newer for headless renders. Arch build packages are `base-devel git rust libxkbcommon wayland vulkan-icd-loader`. Install a Vulkan driver for the machine too.
+Linux needs a Vulkan driver. Mesa lavapipe supports machines without a GPU; use trixie or newer for headless renders. Arch build packages are `base-devel git rust libxkbcommon libxkbcommon-x11 wayland vulkan-icd-loader libx11 libxcursor libxi hicolor-icon-theme`. Install a Vulkan driver for the machine too.
 
 `PREFIX` changes the Linux install location from `~/.local` and must be absolute. After helper updates, log out and back in to reload the GNOME extension or KWin script. On GNOME enable `spentday@spent.day`; on KDE enable Spent Day Focus under System Settings > Window Management > KWin Scripts.
 

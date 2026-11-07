@@ -44,7 +44,7 @@ apps/desktop/macos/install.sh
 On Debian 13 or Ubuntu with recent Mesa:
 
 ```sh
-sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 mesa-vulkan-drivers libvulkan1
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcursor1 libxi6 mesa-vulkan-drivers libvulkan1
 apps/desktop/linux/install.sh
 ```
 
