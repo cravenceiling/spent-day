@@ -13,6 +13,7 @@ apps/desktop/linux/verify.sh
 node --test extension/test/*.test.mjs
 (cd apps/android && ./gradlew testDebugUnitTest)
 actionlint .github/workflows/release.yml
+shellcheck packaging/linux/*.sh packaging/linux/AppRun
 ```
 
 The desktop crate has its own workspace and lockfile. Root workspace tests cover the core, server and CLI. The macOS scripts cover collector tests, live media assertions, signing and focus-to-span checks. Linux verification builds its Docker image, checks X11 focus and idle, Chromium and the extension, helper stand-ins, single-instance activation, installer behavior and headless Sway.
@@ -39,6 +40,33 @@ docker run --rm \
     xvfb-run -a cargo test --locked &&
     cargo build --locked'
 ```
+
+## Linux release packages
+
+`packaging/linux/Dockerfile` uses the pinned Rust compiler on Ubuntu 24.04 for `.deb` builds and Ubuntu 22.04 for AppImage builds. `build-deb.sh` pins cargo-deb. `build-appimage.sh` pins appimagetool and its runtime by release and SHA-256. Neither build enables GCC LTO for the C dependencies.
+
+Run the same scripts as CI from the repository root:
+
+```sh
+docker build --build-arg BASE=ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 -t spentday-deb -f packaging/linux/Dockerfile packaging/linux
+docker build -t spentday-appimage -f packaging/linux/Dockerfile packaging/linux
+docker volume create spentday-release-target
+docker run --rm -v "$PWD:/src" -v spentday-release-target:/target \
+  -e CARGO_HOME=/target/cargo -e CARGO_INSTALL_ROOT=/target/cargo-deb -e CARGO_TARGET_DIR=/target/deb \
+  spentday-deb /src/packaging/linux/build-deb.sh
+docker run --rm -v "$PWD:/src" -v spentday-release-target:/target \
+  -e CARGO_HOME=/target/cargo -e CARGO_TARGET_DIR=/target/appimage \
+  spentday-appimage /src/packaging/linux/build-appimage.sh
+docker volume rm spentday-release-target
+```
+
+On an ARM host, pass `--platform linux/amd64` to both build and run. Headless renders also need a current emulator with AVX/F16C support. Colima's QEMU 7 reports `shaderFloat16=false` in Mesa and cannot validate Rune's half-float shader operations. A current [BuildKit QEMU helper](https://github.com/tonistiigi/binfmt#buildkit-target), mounted only in the test container with `QEMU_CPU=max`, keeps the VM's shared emulator registration unchanged. Use only this named target volume and remove it after verification. The artifacts land in `dist/`.
+
+Inspect the Debian package with `dpkg-deb -I` and `dpkg-deb -c`. Install it with `apt install ./spentday_<version>-1_amd64.deb` in a fresh `debian:trixie` container. With `mesa-vulkan-drivers` and fonts installed, run `spentday --demo --snap /tmp/day.png --scene day` and inspect the PNG. No display is needed for this scene.
+
+In fresh `ubuntu:24.04` and `fedora:latest` containers, install the host Vulkan/Mesa, Wayland, xkbcommon and X11 runtime libraries plus fonts. Run the AppImage with `--appimage-extract-and-run --demo --snap /tmp/day.png --scene day` and inspect each PNG. Check the extracted AppDir contains no shared libraries, and check the binary's required GLIBC symbols against the documented floor.
+
+Run `--install-helpers` with a temporary `HOME` and custom `XDG_DATA_HOME` from GNOME and KDE sessions. Check the paths and contents against the source helper files. Automated tests use command stand-ins; enabling helpers in a real GNOME or KDE Wayland session remains a manual check.
 
 ## Headless scenes
 
@@ -69,6 +97,6 @@ Earlier platform builds were exercised on macOS 26, Docker X11 and headless Sway
 - Launch Linux a second time and confirm it activates the primary window with the launcher's token. On Wayland, close and reopen the dashboard. Check real GNOME, KDE and Hyprland focus, idle and helper installation.
 - On macOS check menu panel placement, click-away dismissal, repeated-click toggle, Escape, dashboard activation and first-launch onboarding. Check Safari opt-in, lock and sleep, and live private-window behavior in Brave, Helium, Edge, Vivaldi, Opera and Arc.
 - Check VoiceOver and Orca on the treemap, settings fields and fatal window. Check reduced motion and live theme changes.
-- Run the Release workflow on a pull request and inspect the DMG and Arch package. Verify macOS signing and Linux runtime dependencies.
+- Run the Release workflow on a pull request and inspect the DMG, Arch package, `.deb` and AppImage. Verify macOS signing and Linux runtime dependencies.
 
 GNOME and KDE tests use stand-ins. Hyprland uses a recorded reply. Real phones and Android 8 through 15 remain untested. `scripts/e2e-cross-device.sh` checks sync across the real apps and needs a manual run after the port's integration.
