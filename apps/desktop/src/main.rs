@@ -3,6 +3,8 @@ mod colors;
 mod day;
 mod demo;
 mod format;
+#[cfg(target_os = "linux")]
+mod helpers;
 mod icons;
 mod jobs;
 mod layout;
@@ -47,6 +49,16 @@ fn parse(argv: impl IntoIterator<Item = String>) -> Opts {
 }
 
 fn main() -> ExitCode {
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|arg| arg == "--install-helpers") {
+        return match helpers::install() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Could not install desktop helpers: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     app::run(parse(std::env::args().skip(1)))
 }
 
