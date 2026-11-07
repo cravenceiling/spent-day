@@ -221,3 +221,73 @@ fn settings_labels_and_destructive_button_pass_contrast_in_both_themes() {
         assert!(button.fill.r > button.fill.g);
     }
 }
+
+struct FailOnce {
+    demo: Demo,
+    failed: std::sync::atomic::AtomicBool,
+}
+
+impl crate::store::Store for FailOnce {
+    fn day(
+        &self,
+        q: spentday_core::DayQuery,
+    ) -> Result<spentday_core::DayDetail, spentday_core::SpentDayError> {
+        Ok(self.demo.day(q))
+    }
+    fn summary(
+        &self,
+        q: spentday_core::SummaryQuery,
+    ) -> Result<spentday_core::Summary, spentday_core::SpentDayError> {
+        Ok(self.demo.summary(q))
+    }
+    fn new_sync_code(&self) -> String {
+        self.demo.new_sync_code()
+    }
+    fn sync_config(&self) -> Result<Option<SyncConfig>, spentday_core::SpentDayError> {
+        if !self.failed.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(spentday_core::SpentDayError::Storage("locked".into()));
+        }
+        self.demo.sync_config()
+    }
+    fn set_sync_config(&self, c: Option<SyncConfig>) -> Result<(), spentday_core::SpentDayError> {
+        self.demo.set_sync_config(c)
+    }
+    fn sync_now(&self) -> Result<spentday_core::SyncReport, spentday_core::SpentDayError> {
+        self.demo.sync_now()
+    }
+}
+
+#[test]
+fn failed_load_stops_loading_and_a_later_load_clears_its_error() {
+    let shared = Arc::new(Shared {
+        store: Arc::new(FailOnce {
+            demo: Demo::new(),
+            failed: Default::default(),
+        }),
+        demo: true,
+        tz: jiff::tz::TimeZone::UTC,
+        icons: icons::Seeds::default(),
+        sync: Mutex::default(),
+        ui: OnceLock::new(),
+    });
+    let d = Dash::new(shared, jiff::civil::date(2026, 10, 28));
+    fn render(d: &Dash, cx: &mut Cx<Dash>) -> El {
+        view(d, crate::ui::kit(cx.system_dark()))
+    }
+    let mut rt = Runtime::new(d, render, (720.0, 560.0), Env::new(true, 1.0));
+    rt.update(open);
+    rt.frame(0.0);
+    assert!(rt.state.settings.error.is_some(), "the first load fails");
+    assert!(!rt.state.settings.working);
+    assert!(
+        !format!("{:?}", rt.elements()).contains("Loading"),
+        "no spinner after a failed load"
+    );
+    rt.update(open);
+    rt.frame(0.1);
+    assert_eq!(
+        rt.state.settings.error, None,
+        "a successful retry clears the error"
+    );
+    assert!(rt.state.settings.config.is_some());
+}

@@ -22,6 +22,8 @@ pub struct Prefs {
     pub confirm_off: bool,
     pub sync: SyncView,
     pub autostart: Option<Autostart>,
+    /// A login item change is in flight; the switch waits so results can't land out of order.
+    pub autostart_busy: bool,
     pub safari: Option<bool>,
 }
 
@@ -45,6 +47,7 @@ impl Prefs {
             confirm_off: false,
             sync: SyncView::default(),
             autostart: None,
+            autostart_busy: false,
             safari: platform::read_pref(Pref::RecordSafariSites),
         }
     }
@@ -99,6 +102,7 @@ pub fn load(d: &mut Dash, tx: &mut Tx) {
         d.settings.autostart = autostart.map(|on| Autostart { on, note: None });
         match config {
             Ok(config) => {
+                d.settings.error = None;
                 d.shared.sync.lock().unwrap().configured = config.is_some();
                 d.settings.sync = d.shared.sync.lock().unwrap().view();
                 d.settings.apply_config(config);
@@ -118,23 +122,31 @@ pub fn load(d: &mut Dash, tx: &mut Tx) {
 }
 
 fn toggle_autostart(d: &mut Dash) {
+    if d.settings.autostart_busy {
+        return;
+    }
     let (Some(auto), Some(ui)) = (&mut d.settings.autostart, d.shared.ui.get()) else {
         return;
     };
     let on = !auto.on;
     auto.on = on;
     auto.note = None;
+    d.settings.autostart_busy = true;
     // Register and unregister are XPC round trips that can wait on the login items notice.
     crate::jobs::spawn(
         ui.dash.clone(),
         move || match platform::set_autostart(on) {
-            Ok(note) => Autostart { on, note },
+            Ok(note) => Autostart {
+                on: platform::autostart().unwrap_or(on),
+                note,
+            },
             Err(error) => Autostart {
                 on: platform::autostart().unwrap_or(!on),
                 note: Some(error),
             },
         },
         |d, result, _| {
+            d.settings.autostart_busy = false;
             d.settings.autostart = Some(result);
             true
         },
@@ -344,7 +356,10 @@ pub fn view(d: &Dash, k: &Kit) -> El {
     let problem = server_problem(&p.server.text);
     let jewel_top = rune::color::hex("#1d71e2").unwrap();
     let jewel_bottom = rune::color::hex("#2d53c9").unwrap();
-    let status = if !loaded {
+    let status = if !loaded && !p.working {
+        // The load failed; its error shows below and the next open retries.
+        row()
+    } else if !loaded {
         // Until the saved config is known, Create and Join must not be offered over it.
         row()
             .label("Loading")
@@ -615,6 +630,7 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                     Switch::new(auto.on)
                         .label("Launch at login")
                         .hide_label()
+                        .disabled(p.autostart_busy)
                         .on_toggle(toggle_autostart)
                         .build(k)
                         .key("autostart"),
