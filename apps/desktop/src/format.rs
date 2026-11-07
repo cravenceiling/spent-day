@@ -2,6 +2,7 @@ use spentday_core::SpentDayError;
 
 /// `0m`, `<1m`, `45m`, `2h`, `5h 12m`, rounded to the nearest minute.
 pub fn duration(ms: i64) -> String {
+    let ms = ms.max(0);
     let minutes = (ms + 30_000) / 60_000;
     if ms > 0 && minutes == 0 {
         return "<1m".into();
@@ -96,5 +97,6 @@ mod tests {
         assert_eq!(duration(119 * 60_000 + 40_000), "2h");
         assert_eq!(duration(5 * 3_600_000 + 12 * 60_000), "5h 12m");
         assert_eq!(duration(30 * 3_600_000), "30h");
+        assert_eq!(duration(-120_000), "0m");
     }
 }

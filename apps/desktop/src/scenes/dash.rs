@@ -81,15 +81,13 @@ pub fn loading(s: &mut Dash) {
 }
 pub fn error(s: &mut Dash) {
     demo_day(s);
-    s.error = Some("Could not read or write the database".into());
+    s.error = Some(crate::format::user_message(
+        &spentday_core::SpentDayError::Storage("The database file could not be opened.".into()),
+    ));
 }
 pub fn details(s: &mut Dash) {
     demo_day(s);
     s.details_open = true;
-}
-/// Pair with a script that presses Tab to see the ring on the first tile.
-pub fn focus(s: &mut Dash) {
-    demo_day(s);
 }
 pub fn reduced(s: &mut Dash) {
     demo_day(s);

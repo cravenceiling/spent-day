@@ -9,6 +9,7 @@ use jiff::civil::Date;
 use rune::{Chord, Key, KeyEvent, Spring, Tx};
 use spentday_core::{DayDetail, DayQuery};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(test)]
 #[path = "dash_tests.rs"]
@@ -362,12 +363,20 @@ impl Dash {
     }
 }
 
-/// Icon lookups run on workers; each one that lands repaints the open dashboard.
+/// Icon lookups run on workers and land in a burst after a load. Arrivals while a repaint is
+/// queued share it, so the palette isn't rebuilt on the UI thread once per icon.
 fn palette(shared: &Shared, detail: &DayDetail) -> Palette {
     let dash = shared.ui.get().map(|ui| ui.dash.clone());
+    let queued = Arc::new(AtomicBool::new(false));
     Palette::build(detail, &shared.icons, shared.demo, move || {
-        if let Some(dash) = &dash {
-            dash.update_if(|d, _| d.repaint());
+        if let Some(dash) = &dash
+            && !queued.swap(true, Ordering::AcqRel)
+        {
+            let queued = queued.clone();
+            dash.update_if(move |d, _| {
+                queued.store(false, Ordering::Release);
+                d.repaint()
+            });
         }
     })
 }

@@ -11,6 +11,8 @@ use spentday_core::{SyncConfig, SyncReport};
 pub const CODE: &str = "7KQ2-M3XP-R2D9-WF4H-B8TN-C6JV-Q1ZE-HY5G-4MRA-T0VD-9XKP-E3NW-J7FB-2QHS";
 
 fn open(s: &mut Dash) {
+    s.selected = jiff::civil::date(2026, 10, 28);
+    s.load_now();
     s.overlay = Overlay::Settings;
     s.settings = Prefs::new();
     s.settings.autostart = None;

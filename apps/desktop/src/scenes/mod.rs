@@ -20,7 +20,6 @@ pub const DASH: Scenes<Dash> = &[
     ("loading", dash::loading),
     ("error", dash::error),
     ("details", dash::details),
-    ("focus", dash::focus),
     ("reduced", dash::reduced),
     ("menu", dash::menu),
     ("about", dash::about),

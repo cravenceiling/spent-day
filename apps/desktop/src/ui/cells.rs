@@ -34,8 +34,6 @@ pub struct Cell {
     pub total_ms: i64,
     /// Start-sorted.
     pub sessions: Vec<Session>,
-    pub fill: Rgb,
-    pub dimmed: Rgb,
     pub ink: Rgb,
     pub dim_ink: Rgb,
     pub gradient: [Rgb; 2],
@@ -242,8 +240,6 @@ pub fn layout_in_timezone(
             name,
             total_ms,
             sessions,
-            fill: style.base,
-            dimmed: style.dim_fill,
             ink: style.ink,
             dim_ink: style.dim_ink,
             gradient: style.gradient,
@@ -553,7 +549,11 @@ mod tests {
                     && cell.radius <= cell.rect.h as f32 / 3.
             );
             assert!(
-                cell.fill.contrast(cell.ink) >= 4.5 && cell.dimmed.contrast(cell.dim_ink) >= 4.5
+                cell.gradient.iter().all(|c| c.contrast(cell.ink) >= 4.5)
+                    && cell
+                        .dim_gradient
+                        .iter()
+                        .all(|c| c.contrast(cell.dim_ink) >= 4.5)
             );
         }
     }
