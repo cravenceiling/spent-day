@@ -5,7 +5,7 @@
 use crate::ui::cells::Cell;
 use crate::ui::dash::{Drill, Loaded};
 use crate::ui::dash_view::Page;
-use crate::ui::treemap::{color, device_of, look};
+use crate::ui::treemap::{color, device_of};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use rune::{El, TextStyle, el, text};
@@ -81,13 +81,13 @@ fn track<'a>(
         .fill(page.track)
         .clip_rounded(h / 2.0)
         .children(bars.map(|(key, s, bright)| {
-            let l = look(&loaded.palette, key, dark, false);
+            let fill = loaded.palette.fill(key, dark);
             let x = (s.start_ms - d.start_ms) as f32 / span * width;
             let w = ((s.end_ms - s.start_ms) as f32 / span * width).max(2.0);
             el().absolute(x, 0.0)
                 .size(w, h)
                 .radius(2.0)
-                .fill(color(l.top))
+                .fill(color(fill))
                 .opacity(if bright { 1.0 } else { 0.2 })
         }))
 }

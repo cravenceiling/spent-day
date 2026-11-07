@@ -3,17 +3,12 @@
 use crate::app::Shared;
 use crate::palette::Palette;
 use crate::ui::settings::Prefs;
-use crate::{format, jobs};
+use crate::{day, format, jobs};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use rune::{Chord, Key, KeyEvent, Spring, Tx};
 use spentday_core::{DayDetail, DayQuery};
 use std::sync::Arc;
-
-// INTERIM: unit 1's model, until it merges (see the module docs).
-#[path = "interim.rs"]
-pub mod interim;
-use interim::day;
 
 #[cfg(test)]
 #[path = "dash_tests.rs"]
@@ -123,16 +118,10 @@ impl Dash {
     pub fn read(shared: &Shared, selected: Date) -> Result<Loaded, String> {
         let tz = &shared.tz;
         let read = |q: DayQuery| {
-            let detail = shared
+            shared
                 .store
-                .day(q.clone())
-                .map_err(|e| format::error("read the day", &e))?;
-            // INTERIM: the demo store is empty until unit 1 moves the dataset in.
-            Ok::<_, String>(if shared.demo && detail.devices.is_empty() {
-                interim::demo_day(&q, tz)
-            } else {
-                detail
-            })
+                .day(q)
+                .map_err(|e| format::error("read the day", &e))
         };
         let query = day::query(selected, tz);
         let detail = read(query.clone())?;
@@ -142,10 +131,28 @@ impl Dash {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Loaded {
             usual_ms: day::usual_total(&history),
-            palette: Palette::build(&detail, &shared.icons, shared.demo),
+            palette: palette(shared, &detail),
             query,
             detail,
         })
+    }
+
+    /// Rebuilds the palette once an icon's colour arrives. False when nothing changed.
+    pub fn repaint(&mut self) -> bool {
+        let Load::Ready(current) = &self.load else {
+            return false;
+        };
+        let palette = palette(&self.shared, &current.detail);
+        if palette == current.palette {
+            return false;
+        }
+        self.load = Load::Ready(Arc::new(Loaded {
+            query: current.query.clone(),
+            detail: current.detail.clone(),
+            usual_ms: current.usual_ms,
+            palette,
+        }));
+        true
     }
 
     /// Scenes: load on the spot, with no event loop to deliver a background result.
@@ -353,6 +360,16 @@ impl Dash {
         }
         true
     }
+}
+
+/// Icon lookups run on workers; each one that lands repaints the open dashboard.
+fn palette(shared: &Shared, detail: &DayDetail) -> Palette {
+    let dash = shared.ui.get().map(|ui| ui.dash.clone());
+    Palette::build(detail, &shared.icons, shared.demo, move || {
+        if let Some(dash) = &dash {
+            dash.update_if(|d, _| d.repaint());
+        }
+    })
 }
 
 /// Whether a tile with this id can still be drawn from `detail`.

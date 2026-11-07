@@ -54,7 +54,7 @@ pub fn device_sentence(device: &DeviceDay, day_end: i64, tz: &TimeZone) -> Strin
     )
 }
 
-pub fn item_sentence(item: &DayItem, day_end: i64, tz: &TimeZone) -> String {
+pub fn item_sentence(item: &DayItem, device: &str, day_end: i64, tz: &TimeZone) -> String {
     let (Some(first), Some(last)) = (
         item.sessions.iter().map(|s| s.start_ms).min(),
         item.sessions.iter().map(|s| s.end_ms).max(),
@@ -62,7 +62,7 @@ pub fn item_sentence(item: &DayItem, day_end: i64, tz: &TimeZone) -> String {
         return String::new();
     };
     format!(
-        "{}, {} {}, {} to {}.",
+        "{} on {device}, {} {}, {} to {}.",
         item.name,
         item.sessions.len(),
         if item.sessions.len() == 1 {
@@ -155,8 +155,13 @@ mod tests {
             "MacBook Pro, 6 apps and sites, 08:49 to 21:10."
         );
         assert_eq!(
-            item_sentence(&detail.devices[0].items[0], detail.end_ms, &tz),
-            "Xcode, 4 sessions, 09:10 to 17:45."
+            item_sentence(
+                &detail.devices[0].items[0],
+                "MacBook Pro",
+                detail.end_ms,
+                &tz
+            ),
+            "Xcode on MacBook Pro, 4 sessions, 09:10 to 17:45."
         );
         assert_eq!(
             details_lines(&detail, &tz),

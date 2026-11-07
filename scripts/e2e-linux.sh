@@ -79,7 +79,7 @@ cli)
   ;;
 shot)
   SPENTDAY_DB="$db" daemon window "$spentday"
-  xdotool search --sync --onlyvisible --all --pid "$(cat "$state/spentday.pid")" --name '^Spent Day$' >/dev/null
+  xdotool search --sync --onlyvisible --all --pid "$(cat "$state/window.pid")" --name '^Spent Day$' >/dev/null
   sleep 3
   import -window root "$2"
   xdotool key ctrl+w

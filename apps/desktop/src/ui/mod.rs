@@ -5,6 +5,8 @@ pub mod dash;
 pub mod dash_view;
 pub mod details;
 pub mod fatal;
+// `PanelRow::app_ids` and `Panel::on_focus` wait on the panel polish running in parallel.
+#[expect(dead_code)]
 pub mod panel;
 pub mod settings;
 pub mod strip;
@@ -15,11 +17,7 @@ use rune_kit::{Kit, PaletteSeed};
 use std::sync::OnceLock;
 
 pub fn bg(dark: bool) -> Color {
-    if dark {
-        rune::color::hex("#161618").unwrap()
-    } else {
-        rune::color::hex("#f7f7f9").unwrap()
-    }
+    treemap::color(crate::palette::page(dark))
 }
 
 /// Built once per appearance: `Kit::from_palette` does OKLab work a view must not repeat.
@@ -44,7 +42,6 @@ pub fn kit(dark: bool) -> &'static Kit {
 pub mod font {
     use super::TextStyle;
 
-    pub const HEADLINE: TextStyle = TextStyle::new(34.0, 650.0);
     pub const TITLE: TextStyle = TextStyle::new(17.0, 600.0);
     pub const BODY: TextStyle = TextStyle::new(13.0, 400.0);
     pub const LABEL: TextStyle = TextStyle::new(12.0, 500.0);

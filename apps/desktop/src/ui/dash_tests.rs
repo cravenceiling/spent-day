@@ -1,11 +1,10 @@
 //! The dashboard on a bare Rune runtime (no GPU), with the demo day in New York: the tile
 //! geometry, keyboard focus through drills, the hover protocol and reload stability.
 
-use super::interim::cells;
 use super::*;
 use crate::app::Shared;
 use crate::demo::Demo;
-use crate::ui::cells::Measure;
+use crate::ui::cells::{self, Measure};
 use crate::ui::dash_view;
 use jiff::civil::date;
 use jiff::tz::TimeZone;
@@ -20,13 +19,17 @@ const FRAME: f64 = 1.0 / 60.0;
 
 fn shared() -> Arc<Shared> {
     Arc::new(Shared {
-        store: Arc::new(Demo::new()),
+        store: Arc::new(Demo::with_timezone(new_york())),
         demo: true,
-        tz: TimeZone::get("America/New_York").unwrap(),
+        tz: new_york(),
         icons: Default::default(),
         sync: Mutex::default(),
         ui: OnceLock::new(),
     })
+}
+
+fn new_york() -> TimeZone {
+    TimeZone::get("America/New_York").unwrap()
 }
 
 fn runtime(size: (f32, f32)) -> Runtime<Dash> {
@@ -152,7 +155,15 @@ fn tiles_sit_where_the_layout_puts_them() {
         let [mx, my, mw, mh] = target(&rt, "map");
         let l = rt.state.loaded().unwrap();
         let m: Measure = &measure;
-        let layout = cells::layout(&l.detail, &Drill::Day, &l.palette, [mw, mh], true, m);
+        let layout = cells::layout_in_timezone(
+            &l.detail,
+            &Drill::Day,
+            &l.palette,
+            [mw, mh],
+            true,
+            m,
+            &new_york(),
+        );
         let positive: Vec<_> = layout
             .cells
             .iter()

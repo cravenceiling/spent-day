@@ -2,11 +2,10 @@
 //! Every tile's colour treatment lives in `paint`, fed by `look`.
 
 use crate::colors::Rgb;
+use crate::day;
 use crate::format::duration;
-use crate::palette::Palette;
 use crate::ui::cells::{Cell, CellKind, Label, MapLayout};
-use crate::ui::dash::interim::{self, day};
-use crate::ui::dash::{CellId, Dash, Drill, Loaded};
+use crate::ui::dash::{CellId, Dash, Drill};
 use crate::ui::dash_view::Page;
 use crate::ui::strip;
 use rune::{
@@ -42,11 +41,14 @@ pub fn color(c: Rgb) -> Color {
     }
 }
 
-/// The colours for a palette key; `dimmed` while another tile is hovered.
-pub fn look(palette: &Palette, key: &str, dark: bool, dimmed: bool) -> Look {
-    // INTERIM: unit 1 moves direction B's maths onto `Palette`; read it from there at merge.
-    let _ = palette;
-    interim::look(key, dark, dimmed)
+/// A cell's colours; `dimmed` while another tile is hovered.
+pub fn look(cell: &Cell, dimmed: bool) -> Look {
+    let ([top, bottom], ink) = if dimmed {
+        (cell.dim_gradient, cell.dim_ink)
+    } else {
+        (cell.gradient, cell.ink)
+    };
+    Look { top, bottom, ink }
 }
 
 /// The palette key a cell is painted with.
@@ -139,34 +141,18 @@ pub fn hot(s: &Dash) -> Option<&CellId> {
     s.hovered.as_ref().or(s.popover.as_ref())
 }
 
-/// The label text a session tile shows instead of the item's name.
-fn shown_name(cell: &Cell, loaded: &Loaded, s: &Dash) -> String {
-    match (&cell.kind, cell.sessions.first()) {
-        (CellKind::Session { .. }, Some(session)) => {
-            let end = loaded.detail.end_ms;
-            let tz = &s.shared.tz;
-            format!(
-                "{} to {}",
-                day::clock(session.start_ms, end, tz),
-                day::clock(session.end_ms, end, tz)
-            )
-        }
-        _ => cell.name.clone(),
-    }
-}
-
-fn tile(s: &Dash, loaded: &Loaded, cell: &Cell, selected: bool, dark: bool) -> El {
+fn tile(s: &Dash, cell: &Cell, selected: bool, dark: bool) -> El {
     let [x, y, w, h] = [cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h].map(|v| v as f32);
     let hot = hot(s);
     let hovered = hot == Some(&cell.id);
     let dimmed = hot.is_some() && !hovered;
-    let look = look(&loaded.palette, palette_key(cell), dark, dimmed);
+    let look = look(cell, dimmed);
     let ink = color(look.ink);
-    let name = shown_name(cell, loaded, s);
+    let name = cell.name.clone();
     let key = tile_key(&cell.id);
     let (label, description) = match &cell.kind {
         CellKind::Session { .. } => (
-            format!("{}, {}", name, day::accessible_duration(cell.total_ms)),
+            format!("{name}, {}", day::accessible_duration(cell.total_ms)),
             "Session",
         ),
         CellKind::Other { .. } => (
@@ -295,27 +281,21 @@ fn header(s: &Dash, h: &crate::ui::cells::Header, selected: bool, page: &Page) -
 /// page's selected tile, and tiles shared between levels fly between their rects.
 pub fn map(s: &Dash, layout: &MapLayout, dark: bool) -> El {
     let page = Page::of(dark);
-    let loaded = s.loaded();
     let mut children = Vec::new();
-    if let Some(loaded) = loaded {
-        let keys: Vec<String> = layout
-            .headers
-            .iter()
-            .map(|h| format!("hdr-{}", h.device))
-            .chain(layout.cells.iter().map(|c| tile_key(&c.id)))
-            .collect();
+    if s.loaded().is_some() {
+        let keys = layout.focus_order();
         let want = s.focus_after_drill.as_ref().filter(|k| keys.contains(k));
         let first = layout.cells.first().map(|c| tile_key(&c.id));
         let selected = |k: &str| want.map_or(first.as_deref() == Some(k), |w| w == k);
         for h in &layout.headers {
             children.push(header(s, h, selected(&format!("hdr-{}", h.device)), &page));
             for cell in layout.cells.iter().filter(|c| device_of(c) == h.device) {
-                children.push(tile(s, loaded, cell, selected(&tile_key(&cell.id)), dark));
+                children.push(tile(s, cell, selected(&tile_key(&cell.id)), dark));
             }
         }
         if layout.headers.is_empty() {
             for cell in &layout.cells {
-                children.push(tile(s, loaded, cell, selected(&tile_key(&cell.id)), dark));
+                children.push(tile(s, cell, selected(&tile_key(&cell.id)), dark));
             }
         }
     }
@@ -358,9 +338,8 @@ pub fn popover(s: &Dash, layout: &MapLayout, map_w: f32, dark: bool) -> Option<E
         .detail
         .devices
         .iter()
-        .find(|d| d.device.id == device_of(cell))
-        .map_or("", |d| d.device.name.as_str());
-    let look = look(&loaded.palette, palette_key(cell), dark, false);
+        .find(|d| d.device.id == device_of(cell));
+    let look = look(cell, false);
     let rows: Vec<(String, i64)> = match &cell.kind {
         CellKind::Other { hidden, .. } => hidden.clone(),
         _ => cell
@@ -378,9 +357,17 @@ pub fn popover(s: &Dash, layout: &MapLayout, map_w: f32, dark: bool) -> Option<E
             })
             .collect(),
     };
+    // A session tile's own name is its clock span; the card is titled by its item.
+    let name = match &cell.kind {
+        CellKind::Session { key, .. } => device
+            .and_then(|d| d.items.iter().find(|i| &i.key == key))
+            .map_or(cell.name.as_str(), |i| i.name.as_str()),
+        _ => cell.name.as_str(),
+    };
+    let device = device.map_or("", |d| d.device.name.as_str());
     let title = match cell.kind {
         CellKind::Other { .. } => "Other items".to_string(),
-        _ => format!("{} sessions", cell.name),
+        _ => format!("{name} sessions"),
     };
     let width = map_w.min(264.0);
     let list = col()
@@ -455,7 +442,7 @@ pub fn popover(s: &Dash, layout: &MapLayout, map_w: f32, dark: bool) -> Option<E
                             ),
                     )
                     .child(
-                        text(cell.name.clone())
+                        text(name.to_owned())
                             .font(TextStyle::new(14.0, 650.0))
                             .color(page.text)
                             .truncate(),

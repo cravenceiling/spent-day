@@ -4,11 +4,11 @@
 use crate::format::duration;
 use crate::platform::{self, Pref};
 use crate::sync::{self, Trigger};
-use crate::ui::cells::{MapLayout, Measure};
-use crate::ui::dash::interim::{cells, day, stats};
+use crate::ui::cells::{self, MapLayout, Measure};
 use crate::ui::dash::{Dash, Drill, Loaded, Overlay};
-use crate::ui::treemap;
-use crate::ui::{details, kit, settings, strip};
+use crate::ui::treemap::{self, color};
+use crate::ui::{bg, details, kit, settings, strip};
+use crate::{day, palette, stats};
 use rune::{
     Chord, Color, Cx, El, Icon, Shadow, TextStyle, Transition, Tx, col, el, icon, oklch, row, text,
 };
@@ -32,9 +32,9 @@ impl Page {
     pub fn of(dark: bool) -> Page {
         if dark {
             Page {
-                bg: oklch(0.17, 0.012, 285.0),
-                text: oklch(0.96, 0.005, 285.0),
-                sub: oklch(0.72, 0.01, 285.0),
+                bg: bg(dark),
+                text: color(palette::page_ink(dark)),
+                sub: color(palette::secondary_ink(dark)),
                 faint: oklch(0.60, 0.01, 285.0),
                 track: Color::WHITE.alpha(0.06),
                 hover: Color::WHITE.alpha(0.08),
@@ -44,9 +44,9 @@ impl Page {
             }
         } else {
             Page {
-                bg: oklch(0.97, 0.006, 285.0),
-                text: oklch(0.18, 0.01, 285.0),
-                sub: oklch(0.48, 0.01, 285.0),
+                bg: bg(dark),
+                text: color(palette::page_ink(dark)),
+                sub: color(palette::secondary_ink(dark)),
                 faint: oklch(0.56, 0.01, 285.0),
                 track: Color::BLACK.alpha(0.06),
                 hover: Color::BLACK.alpha(0.05),
@@ -107,13 +107,14 @@ pub fn view(s: &Dash, cx: &mut Cx<Dash>) -> El {
     let [map_w, map_h] = cx.layout_size("map").unwrap_or([1224.0, 520.0]);
     let measure: Measure = &measure;
     let layout = s.loaded().map_or_else(MapLayout::default, |l| {
-        cells::layout(
+        cells::layout_in_timezone(
             &l.detail,
             &s.drill,
             &l.palette,
             [map_w, map_h],
             dark,
             measure,
+            &s.shared.tz,
         )
     });
     let mut layer = Vec::new();
@@ -361,12 +362,7 @@ fn focus<'a>(s: &Dash, l: &'a Loaded) -> Focus<'a> {
             match device(id).and_then(|v| v.items.iter().find(|i| &i.key == key).map(|i| (v, i))) {
                 Some((v, i)) => Focus {
                     total_ms: i.total_ms,
-                    sentence: format!(
-                        "{} on {}, {}",
-                        i.name,
-                        v.device.name,
-                        stats::item_sentence(i, d.end_ms, tz)
-                    ),
+                    sentence: stats::item_sentence(i, &v.device.name, d.end_ms, tz),
                     crumbs: vec![
                         ("crumb-day", "All devices".into(), Some(Drill::Day)),
                         (

@@ -73,6 +73,4 @@ pub fn set_autostart(_on: bool) -> Result<Option<String>, String> {
     Err("Linux starts Spent Day through its autostart entry or systemd unit".into())
 }
 
-pub fn menu_bar(_on_click: Box<dyn Fn([f64; 4])>) {}
-
 pub fn install_quit_handler(_quit: Box<dyn Fn()>) {}

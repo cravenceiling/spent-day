@@ -73,26 +73,7 @@ pub enum Label {
 /// fixed-width fake.
 pub type Measure<'a> = &'a dyn Fn(&str, f32, f32) -> (f32, f32);
 
-pub fn layout(
-    detail: &DayDetail,
-    drill: &Drill,
-    palette: &Palette,
-    size: [f32; 2],
-    dark: bool,
-    measure: Measure,
-) -> MapLayout {
-    layout_in_timezone(
-        detail,
-        drill,
-        palette,
-        size,
-        dark,
-        measure,
-        &TimeZone::system(),
-    )
-}
-
-/// Explicit zone for deterministic session labels and callers with a selected time zone.
+/// Session tiles read their clock span in `tz`.
 pub fn layout_in_timezone(
     detail: &DayDetail,
     drill: &Drill,
@@ -204,11 +185,12 @@ pub fn layout_in_timezone(
         );
         let duration = format::duration(total_ms);
         let mut label = Label::None;
-        let tiers = [(16., 19., 15.), (13., 15., 13.), (12., 13., 12.5)];
+        let tiers = [(16., 22., 15.), (13., 15., 13.), (12., 13., 12.5)];
         let first_tier = usize::from(rect.w < 260. || rect.h < 200.);
         for &(pad, name_pt, dur_pt) in &tiers[first_tier..] {
-            let (nw, _) = measure(&name, name_pt, 600.);
-            let (dw, _) = measure(&duration, dur_pt, 400.);
+            // The weights the tile draws with.
+            let (nw, _) = measure(&name, name_pt, 650.);
+            let (dw, _) = measure(&duration, dur_pt, 500.);
             if rect.w as f32 - 2. * pad >= nw.max(dw) + 2.
                 && rect.h as f32 - 2. * pad >= (name_pt + dur_pt) * 1.4 + 2.
             {
@@ -221,7 +203,7 @@ pub fn layout_in_timezone(
             }
         }
         if label == Label::None {
-            let (width, height) = measure(&name, 13., 600.);
+            let (width, height) = measure(&name, 13., 650.);
             if rect.w as f32 - 24. >= width + 2. && rect.h as f32 - 20. >= height {
                 label = Label::NameOnly;
             }
@@ -305,6 +287,17 @@ impl MapLayout {
 mod tests {
     use super::*;
     use spentday_core::{DayItem, DeviceDay, DeviceInfo, ItemKind, Platform};
+
+    fn layout(
+        detail: &DayDetail,
+        drill: &Drill,
+        palette: &Palette,
+        size: [f32; 2],
+        dark: bool,
+        measure: Measure,
+    ) -> MapLayout {
+        layout_in_timezone(detail, drill, palette, size, dark, measure, &TimeZone::UTC)
+    }
 
     fn measure(text: &str, pt: f32, _: f32) -> (f32, f32) {
         (text.chars().count() as f32 * pt * 0.5, pt)
@@ -462,7 +455,7 @@ mod tests {
                 [260., 200.],
                 Label::Both {
                     pad: 16.,
-                    name_pt: 19.,
+                    name_pt: 22.,
                     dur_pt: 15.,
                 },
             ),

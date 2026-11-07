@@ -21,7 +21,9 @@ pub enum Pref {
 
 pub enum Instance {
     Primary(InstanceGuard),
-    /// Another process owns the app; it got this launch's `show` and activation token.
+    /// Another process owns the app; it got this launch's `show` and activation token. macOS
+    /// leaves single instance to LaunchServices.
+    #[cfg(target_os = "linux")]
     Forwarded,
 }
 

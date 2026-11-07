@@ -53,7 +53,7 @@ pub fn other_popover(s: &mut Dash) {
     s.load = Load::Ready(Arc::new(Loaded {
         query: l.query.clone(),
         usual_ms: l.usual_ms,
-        palette: Palette::build(&detail, &s.shared.icons, true),
+        palette: Palette::build(&detail, &s.shared.icons, true, || {}),
         detail,
     }));
     let other = format!("{MAC}/other");

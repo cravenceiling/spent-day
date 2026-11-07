@@ -11,10 +11,7 @@ use crate::ui::panel::{self, Panel};
 use crate::{day, icons, scenes};
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
-use rune::{
-    App, AppHandle, AppSpec, Chord, DisplayTarget, Key, MacWindowOptions, OverlayPlacement,
-    RunOptions, WindowOptions, WindowSpec,
-};
+use rune::{App, AppHandle, AppSpec, Chord, Key, RunOptions, WindowSpec};
 use spentday_core::SpentDay;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,6 +52,11 @@ pub struct Handles {
     pub panel: AppHandle<Panel>,
     pub fatal: AppHandle<Fatal>,
 }
+
+/// Shared by the panel's focus hook (a plain `fn`) and the status item's click.
+#[cfg(target_os = "macos")]
+static PANEL: std::sync::LazyLock<Mutex<platform::status_item::PanelState>> =
+    std::sync::LazyLock::new(Mutex::default);
 
 /// Exit code 3 after the fatal window showed: `spentday.service` doesn't restart on it.
 static FAILED: AtomicBool = AtomicBool::new(false);
@@ -159,7 +161,10 @@ pub fn run(opts: Opts) -> ExitCode {
             .init(move || Panel::new(shared))
             .windowless()
             .on_focus(|p, focused, tx| {
-                p.on_focus(focused, tx);
+                #[cfg(target_os = "macos")]
+                if PANEL.lock().unwrap().focus_changed(focused) {
+                    tx.close_window();
+                }
                 if focused {
                     p.refresh(tx);
                 }
@@ -185,7 +190,9 @@ pub fn run(opts: Opts) -> ExitCode {
         panel: panel_app.handle(),
         fatal: fatal_app.handle(),
     };
-    let (dash, panel) = (handles.dash.clone(), handles.panel.clone());
+    #[cfg(target_os = "macos")]
+    let panel = handles.panel.clone();
+    let dash = handles.dash.clone();
     let _ = shared.ui.set(handles);
 
     let mut tracking = None;
@@ -210,29 +217,18 @@ pub fn run(opts: Opts) -> ExitCode {
             }
         });
         match platform::claim_instance(demo, show, on_activate) {
+            #[cfg(target_os = "linux")]
             Instance::Forwarded => return ExitCode::SUCCESS,
             Instance::Primary(guard) => _instance = Some(guard),
         }
         quit_on_signals(dash.clone());
         {
-            let (dash, panel) = (dash.clone(), panel.clone());
+            let dash = dash.clone();
             // Runs on the main thread once the loop starts, with or without a window.
             dash.clone().update(move |_, _| {
-                platform::menu_bar(Box::new(move |[x, y, width, height]| {
-                    if panel.is_visible() {
-                        panel.close();
-                    } else {
-                        panel.place(
-                            DisplayTarget::Primary,
-                            OverlayPlacement::Rect {
-                                x: (x + width / 2.0) as f32 - panel::SIZE.0 / 2.0,
-                                y: (y + height + 4.0) as f32,
-                                width: panel::SIZE.0,
-                                height: panel::SIZE.1,
-                            },
-                        );
-                        panel.open();
-                    }
+                #[cfg(target_os = "macos")]
+                platform::menu_bar(Box::new(move |rect| {
+                    PANEL.lock().unwrap().toggle(&panel, rect, panel::SIZE);
                 }));
                 platform::install_quit_handler(Box::new(move || dash.quit()));
             });
@@ -279,17 +275,15 @@ pub fn run(opts: Opts) -> ExitCode {
         }
     }
 
-    let panel_options = WindowOptions {
-        borderless: true,
-        transparent: true,
-        resizable: false,
-        always_on_top: true,
+    #[cfg(target_os = "macos")]
+    let panel_options = platform::status_item::panel_options(panel::SIZE);
+    // Linux has no status item; the panel exists for headless scenes only.
+    #[cfg(target_os = "linux")]
+    let panel_options = rune::WindowOptions {
         visible: false,
-        min_size: Some(panel::SIZE),
-        max_size: Some(panel::SIZE),
         ..Default::default()
     }
-    .macos(MacWindowOptions::default().corner_radius(12.0));
+    .into();
     let result = rune::try_run_windows_with_args(
         RunOptions {
             accessory: cfg!(target_os = "macos"),

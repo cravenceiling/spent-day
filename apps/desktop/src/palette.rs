@@ -38,7 +38,13 @@ pub struct Palette {
 }
 
 impl Palette {
-    pub fn build(detail: &DayDetail, seeds: &Seeds, demo: bool) -> Palette {
+    /// `on_seed` runs on a lookup worker when an icon colour this build lacked arrives.
+    pub fn build(
+        detail: &DayDetail,
+        seeds: &Seeds,
+        demo: bool,
+        on_seed: impl Fn() + Clone + Send + 'static,
+    ) -> Palette {
         let mut ranked = HashMap::new();
         for item in detail.devices.iter().flat_map(|d| &d.items) {
             let entry = ranked.entry(item.key.clone()).or_insert((0, item));
@@ -55,7 +61,7 @@ impl Palette {
                     colors::hashed(&key)
                 } else {
                     seeds
-                        .get_or_spawn(&item.app_key, &item.app_ids, || {})
+                        .get_or_spawn(&item.app_key, &item.app_ids, on_seed.clone())
                         .unwrap_or_else(|| colors::hashed(&key))
                 };
                 (key, candidates(seed))
@@ -270,7 +276,7 @@ mod tests {
     fn exact_jewel_demo_stops_and_ink_in_both_themes() {
         let tz = TimeZone::UTC;
         let detail = Demo::with_timezone(tz.clone()).day(day::query(date(2026, 10, 28), &tz));
-        let palette = Palette::build(&detail, &Seeds::default(), true);
+        let palette = Palette::build(&detail, &Seeds::default(), true, || {});
         for (key, top, bottom, ink) in [
             ("app:com.apple.dt.Xcode", 0x1d71e2, 0x2d53c9, Rgb::WHITE),
             ("app:instagram", 0xd02c92, 0xba005d, Rgb::WHITE),
@@ -309,12 +315,12 @@ mod tests {
         let tz = TimeZone::UTC;
         let mut detail = Demo::with_timezone(tz.clone()).day(day::query(date(2026, 10, 28), &tz));
         let seeds = Seeds::default();
-        let palette = Palette::build(&detail, &seeds, true);
+        let palette = Palette::build(&detail, &seeds, true, || {});
         detail.devices.reverse();
         for device in &mut detail.devices {
             device.items.reverse();
         }
-        assert_eq!(palette, Palette::build(&detail, &seeds, true));
+        assert_eq!(palette, Palette::build(&detail, &seeds, true, || {}));
     }
 
     #[test]
@@ -335,7 +341,7 @@ mod tests {
                 .unwrap()
                 .insert(item.app_key.clone(), Some(red));
         }
-        let palette = Palette::build(&detail, &seeds, false);
+        let palette = Palette::build(&detail, &seeds, false, || {});
         assert_eq!(
             palette.style("app:com.apple.dt.Xcode", true),
             TileStyle::from_base(candidates(red)[0], true)

@@ -1,7 +1,7 @@
 //! The details panel under the sentence: overlap, longest stretch, late time.
 
+use crate::stats;
 use crate::ui::dash::Loaded;
-use crate::ui::dash::interim::stats;
 use crate::ui::dash_view::Page;
 use jiff::tz::TimeZone;
 use rune::{El, ScrollSpec, TextStyle, Transition, col, el, text};

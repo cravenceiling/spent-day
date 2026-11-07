@@ -1,6 +1,3 @@
-// Other units still have unused stub contracts; remove this after their implementations merge.
-#![allow(dead_code)]
-
 mod app;
 mod colors;
 mod day;
