@@ -4,7 +4,7 @@ use crate::platform::{self, Pref};
 use crate::sync::{self, LastSync, SyncView, Trigger};
 use crate::ui::dash::{Dash, Overlay};
 use crate::ui::font;
-use jiff::Timestamp;
+use jiff::{Timestamp, tz::TimeZone};
 use rune::{Color, El, TextEdit, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, Loader, Switch, TextInput};
 use spentday_core::SyncConfig;
@@ -232,33 +232,21 @@ pub fn two_lines(code: &str) -> String {
     format!("{}\n{}", groups[..half].join("-"), groups[half..].join("-"))
 }
 
-fn relative(at: Timestamp) -> String {
-    let seconds = (Timestamp::now().as_second() - at.as_second()).max(0);
-    match seconds {
-        0..60 => "just now".into(),
-        60..120 => "1 minute ago".into(),
-        120..3600 => format!("{} minutes ago", seconds / 60),
-        3600..7200 => "1 hour ago".into(),
-        7200..86400 => format!("{} hours ago", seconds / 3600),
-        86400..172800 => "yesterday".into(),
-        _ => format!("{} days ago", seconds / 86400),
-    }
-}
-
-fn last_sync(p: &Prefs, k: &Kit) -> El {
+fn last_sync(p: &Prefs, k: &Kit, tz: &TimeZone) -> El {
+    let clock = |at: Timestamp| at.to_zoned(tz.clone()).strftime("%H:%M").to_string();
     let (label, color) = if p.sync.running {
         ("Syncing…".into(), k.c.text_muted)
     } else {
         match &p.sync.last {
             None => ("Not yet".into(), k.c.text_muted),
             Some(LastSync::Failed { at, message }) => (
-                format!("Failed {}. {message}", relative(*at)),
+                format!("Failed at {}. {message}", clock(*at)),
                 k.c.danger.fg,
             ),
             Some(LastSync::Ok { at, report }) => (
                 format!(
-                    "{}  ·  {} sent, {} received",
-                    relative(*at),
+                    "At {} · {} sent, {} received",
+                    clock(*at),
                     report.pushed_spans,
                     report.pulled_spans
                 ),
@@ -311,9 +299,38 @@ fn last_sync(p: &Prefs, k: &Kit) -> El {
 
 /// Keeps the skeleton signature and modal frame. The dashboard mounts this at its root.
 pub fn view(d: &Dash, k: &Kit) -> El {
+    let secondary = crate::palette::secondary_ink(k.dark).lch();
+    let mut settings_kit = k.clone();
+    // The kit's page-muted ink falls below 4.5:1 on the raised light settings card.
+    settings_kit.c.text_muted =
+        rune::color::oklch(secondary.l as f32, secondary.c as f32, secondary.h as f32);
+    settings_kit.c.text_faint = settings_kit.c.text_muted;
+    let k = &settings_kit;
     let p = &d.settings;
     let config = p.config.as_ref().and_then(Option::as_ref);
     let problem = server_problem(&p.server.text);
+    let jewel_top = rune::color::hex("#1d71e2").unwrap();
+    let jewel_bottom = rune::color::hex("#2d53c9").unwrap();
+    let status = if config.is_some() {
+        row()
+            .fill(jewel_bottom)
+            .linear_gradient(
+                std::f32::consts::PI,
+                [(0.0, jewel_top), (1.0, jewel_bottom)],
+            )
+            .child(el().size(5.0, 5.0).radius(2.5).fill(Color::WHITE))
+            .child(text("On").font(font::LABEL).color(Color::WHITE))
+    } else {
+        row()
+            .fill(k.c.layer_03)
+            .child(text("Off").font(font::LABEL).color(k.c.text_base))
+    }
+    .key("sync-status")
+    .h(22.0)
+    .px(9.0)
+    .gap(6.0)
+    .center()
+    .radius(11.0);
     let mut form = col()
         .w_full()
         .gap(14.0)
@@ -324,15 +341,7 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                 .gap(8.0)
                 .child(text("Sync").font(font::TITLE).color(k.c.text_base))
                 .child(el().grow(1.0))
-                .child(
-                    text(if config.is_some() { "On" } else { "Off" })
-                        .font(font::LABEL)
-                        .color(if config.is_some() {
-                            k.c.text_accent
-                        } else {
-                            k.c.text_muted
-                        }),
-                ),
+                .child(status),
         )
         .child(
             col()
@@ -407,16 +416,18 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                     .w_full(),
             );
         }
-        form = form.child(last_sync(p, k));
+        form = form.child(last_sync(p, k, &d.shared.tz));
         let mut actions = row()
             .w_full()
             .gap(8.0)
             .center_y()
             .child(
                 Button::new("Turn Off Sync…")
-                    .variant(ButtonVariant::Ghost)
+                    .variant(ButtonVariant::Danger)
                     .on_press(|d: &mut Dash| d.settings.confirm_off = true)
                     .build(k)
+                    .fill(k.c.danger.bg)
+                    .border(1.0, k.c.danger.border)
                     .key("turn-off"),
             )
             .child(el().grow(1.0));
@@ -663,7 +674,8 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                 .child(row().w_full().gap(8.0).child(el().grow(1.0))
                     .child(Button::new("Cancel").on_press(|d: &mut Dash| d.settings.confirm_off = false).build(k).key("cancel-off"))
                     .child(Button::new("Turn Off Sync").variant(ButtonVariant::Danger)
-                        .on_press(|d: &mut Dash| act(d, Action::Off)).build(k).key("confirm-turn-off")))));
+                        .on_press(|d: &mut Dash| act(d, Action::Off)).build(k)
+                        .fill(k.c.danger.bg).border(1.0, k.c.danger.border).key("confirm-turn-off")))));
     }
     root
 }

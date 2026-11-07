@@ -3,7 +3,7 @@ use crate::{app::Shared, demo::Demo, icons};
 use rune::{Cx, Env, Runtime};
 use std::sync::{Arc, Mutex, OnceLock};
 
-fn runtime(scene: fn(&mut Dash)) -> Runtime<Dash> {
+fn runtime(scene: fn(&mut Dash), dark: bool) -> Runtime<Dash> {
     let shared = Arc::new(Shared {
         store: Arc::new(Demo::new()),
         demo: true,
@@ -14,10 +14,10 @@ fn runtime(scene: fn(&mut Dash)) -> Runtime<Dash> {
     });
     let mut d = Dash::new(shared, jiff::civil::date(2026, 10, 28));
     scene(&mut d);
-    fn render(d: &Dash, _: &mut Cx<Dash>) -> El {
-        view(d, crate::ui::kit(true))
+    fn render(d: &Dash, cx: &mut Cx<Dash>) -> El {
+        view(d, crate::ui::kit(cx.system_dark()))
     }
-    let mut rt = Runtime::new(d, render, (720.0, 560.0), Env::new(true, 1.0));
+    let mut rt = Runtime::new(d, render, (720.0, 560.0), Env::new(dark, 1.0));
     rt.frame(0.0);
     rt
 }
@@ -80,7 +80,7 @@ fn url_validation_literals() {
 }
 #[test]
 fn masked_code_is_absent_from_elements_and_accessibility() {
-    let rt = runtime(on);
+    let rt = runtime(on, true);
     let elements = format!("{:?}", rt.elements());
     assert!(!elements.contains(CODE));
     assert!(!elements.contains("7KQ2"));
@@ -89,7 +89,7 @@ fn masked_code_is_absent_from_elements_and_accessibility() {
 }
 #[test]
 fn reveal_has_two_lines_of_seven_groups_and_hide_removes_them() {
-    let mut rt = runtime(on);
+    let mut rt = runtime(on, true);
     click(&mut rt, "reveal-code");
     assert!(rt.state.settings.reveal_code);
     let lines = two_lines(CODE);
@@ -103,7 +103,7 @@ fn reveal_has_two_lines_of_seven_groups_and_hide_removes_them() {
 }
 #[test]
 fn cancel_join_retains_text_and_error() {
-    let mut rt = runtime(off);
+    let mut rt = runtime(off, true);
     click(&mut rt, "begin-join");
     rt.update(|d, _| {
         d.settings
@@ -128,7 +128,7 @@ fn cancel_join_retains_text_and_error() {
 }
 #[test]
 fn save_server_only_appears_for_a_changed_value() {
-    let mut rt = runtime(on);
+    let mut rt = runtime(on, true);
     assert!(rt.find("save-server").is_none());
     rt.update(|d, _| {
         d.settings
@@ -140,7 +140,7 @@ fn save_server_only_appears_for_a_changed_value() {
 }
 #[test]
 fn turn_off_needs_confirmation_and_cancel_keeps_config() {
-    let mut rt = runtime(on);
+    let mut rt = runtime(on, true);
     click(&mut rt, "turn-off");
     assert!(rt.find("confirm-off").is_some());
     click(&mut rt, "cancel-off");
@@ -149,7 +149,7 @@ fn turn_off_needs_confirmation_and_cancel_keeps_config() {
 }
 #[test]
 fn general_rows_only_appear_when_supported() {
-    let mut rt = runtime(off);
+    let mut rt = runtime(off, true);
     assert!(rt.find("autostart").is_none());
     assert!(rt.find("safari").is_none());
     rt.update(|d, _| {
@@ -165,11 +165,59 @@ fn general_rows_only_appear_when_supported() {
 }
 #[test]
 fn copy_feedback_expires_after_1500_ms() {
-    let mut rt = runtime(on);
+    let mut rt = runtime(on, true);
     click(&mut rt, "copy-code");
     assert!(rt.state.settings.copied_until.unwrap() > Instant::now());
     assert!(format!("{:?}", rt.elements()).contains("Copied"));
     rt.update(|d, _| d.settings.copied_until = Some(Instant::now() - Duration::from_millis(1)));
     rt.frame(0.0);
     assert!(!format!("{:?}", rt.elements()).contains("Copied"));
+}
+
+#[test]
+fn last_sync_uses_absolute_local_time_for_success_and_failure() {
+    for (name, scene) in crate::scenes::DASH {
+        let expected = match *name {
+            "settings-on" => "At 14:32 · 18 sent, 342 received",
+            "settings-failed" => {
+                "Failed at 14:32. Couldn't reach the sync server or read its answer. Check the address and your connection."
+            }
+            _ => continue,
+        };
+        let rt = runtime(*scene, true);
+        let label = rt
+            .elements()
+            .into_iter()
+            .find(|e| e.key.as_deref() == Some("last-sync"))
+            .unwrap();
+        assert_eq!(label.text.as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn settings_labels_and_destructive_button_pass_contrast_in_both_themes() {
+    for dark in [true, false] {
+        let rt = runtime(on, dark);
+        let elements = rt.elements();
+        for e in elements.iter().filter(|e| e.text.is_some()) {
+            let Some(ink) = e.text_color else { continue };
+            let background = elements
+                .iter()
+                .rev()
+                .find(|parent| {
+                    e.path.starts_with(&format!("{}/", parent.path)) && parent.fill.a == 1.0
+                })
+                .unwrap()
+                .fill;
+            let (a, b) = (ink.luminance(), background.luminance());
+            let contrast = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+            assert!(contrast >= 4.5, "{:?}: {contrast}, dark={dark}", e.text);
+        }
+        let button = elements
+            .iter()
+            .find(|e| e.key.as_deref() == Some("turn-off"))
+            .unwrap();
+        assert!(button.fill.a > 0.0);
+        assert!(button.fill.r > button.fill.g);
+    }
 }
