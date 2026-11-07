@@ -8,6 +8,7 @@ use crate::ui::dash::{Dash, Overlay};
 use crate::ui::dash_view;
 use crate::ui::fatal::{self, Fatal};
 use crate::ui::panel::{self, Panel};
+use crate::ui::settings;
 use crate::{day, icons, scenes};
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
@@ -264,9 +265,13 @@ pub fn run(opts: Opts) -> ExitCode {
             dash.update(move |d, tx| {
                 d.refresh(tx);
                 if opts.launch == Launch::Settings {
-                    d.overlay = Overlay::Settings;
-                } else if onboarding == Some(false) {
-                    d.overlay = Overlay::Onboarding;
+                    settings::open(d, tx);
+                } else {
+                    // Seeds `configured`, so Sync Now is offered before the first sync ends.
+                    settings::load(d, tx);
+                    if onboarding == Some(false) {
+                        d.overlay = Overlay::Onboarding;
+                    }
                 }
             });
             if show {

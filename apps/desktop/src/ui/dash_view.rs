@@ -247,7 +247,7 @@ fn header(s: &Dash, page: &Page, k: &rune_kit::Kit, layer: &mut Vec<El>) -> El {
         .item(
             MenuItem::new("Settings…")
                 .shortcut(chord_label("mod+comma"))
-                .on_select(|d: &mut Dash| d.overlay = Overlay::Settings),
+                .on_select_tx(|d: &mut Dash, tx| settings::open(d, tx)),
         )
         .separator()
         .item(MenuItem::new("About Spent Day").on_select(|d: &mut Dash| d.overlay = Overlay::About))

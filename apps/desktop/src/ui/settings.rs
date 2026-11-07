@@ -44,7 +44,7 @@ impl Prefs {
             copied_until: None,
             confirm_off: false,
             sync: SyncView::default(),
-            autostart: platform::autostart().map(|on| Autostart { on, note: None }),
+            autostart: None,
             safari: platform::read_pref(Pref::RecordSafariSites),
         }
     }
@@ -70,40 +70,72 @@ impl Prefs {
     }
 }
 
-/// Call on first open, including `--settings`, after the handles have been registered.
+/// Every way into Settings goes through here, so it never shows before the saved state.
 pub fn open(d: &mut Dash, tx: &mut Tx) {
     d.overlay = Overlay::Settings;
     load(d, tx);
 }
 
-/// Loads saved settings without opening the overlay.
-pub fn load(d: &mut Dash, _tx: &mut Tx) {
+/// Loads the saved sync config and the login item state, once. A failed load retries on the
+/// next open.
+pub fn load(d: &mut Dash, tx: &mut Tx) {
     if d.settings.config.is_some() || d.settings.working {
         return;
     }
-    let Some(ui) = d.shared.ui.get() else {
-        return;
-    };
     d.settings.working = true;
     let shared = d.shared.clone();
+    // SMAppService status is an XPC round trip, so it stays off the UI thread too.
+    let read = move || {
+        let config = shared
+            .store
+            .sync_config()
+            .map_err(|e| crate::format::error("load sync settings", &e));
+        (config, platform::autostart())
+    };
+    let loaded = |d: &mut Dash,
+                  (config, autostart): (Result<Option<SyncConfig>, String>, Option<bool>),
+                  _: &mut Tx| {
+        d.settings.working = false;
+        d.settings.autostart = autostart.map(|on| Autostart { on, note: None });
+        match config {
+            Ok(config) => {
+                d.shared.sync.lock().unwrap().configured = config.is_some();
+                d.settings.sync = d.shared.sync.lock().unwrap().view();
+                d.settings.apply_config(config);
+                sync::broadcast(&d.shared);
+            }
+            Err(error) => d.settings.error = Some(error),
+        }
+        true
+    };
+    match d.shared.ui.get() {
+        Some(ui) => crate::jobs::spawn(ui.dash.clone(), read, loaded),
+        // No windows (tests): load in place.
+        None => {
+            loaded(d, read(), tx);
+        }
+    }
+}
+
+fn toggle_autostart(d: &mut Dash) {
+    let (Some(auto), Some(ui)) = (&mut d.settings.autostart, d.shared.ui.get()) else {
+        return;
+    };
+    let on = !auto.on;
+    auto.on = on;
+    auto.note = None;
+    // Register and unregister are XPC round trips that can wait on the login items notice.
     crate::jobs::spawn(
         ui.dash.clone(),
-        move || {
-            shared
-                .store
-                .sync_config()
-                .map_err(|e| crate::format::error("load sync settings", &e))
+        move || match platform::set_autostart(on) {
+            Ok(note) => Autostart { on, note },
+            Err(error) => Autostart {
+                on: platform::autostart().unwrap_or(!on),
+                note: Some(error),
+            },
         },
         |d, result, _| {
-            d.settings.working = false;
-            match result {
-                Ok(config) => {
-                    d.shared.sync.lock().unwrap().configured = config.is_some();
-                    d.settings.apply_config(config);
-                    sync::broadcast(&d.shared);
-                }
-                Err(error) => d.settings.error = Some(error),
-            }
+            d.settings.autostart = Some(result);
             true
         },
     );
@@ -307,11 +339,17 @@ pub fn view(d: &Dash, k: &Kit) -> El {
     settings_kit.c.text_faint = settings_kit.c.text_muted;
     let k = &settings_kit;
     let p = &d.settings;
+    let loaded = p.config.is_some();
     let config = p.config.as_ref().and_then(Option::as_ref);
     let problem = server_problem(&p.server.text);
     let jewel_top = rune::color::hex("#1d71e2").unwrap();
     let jewel_bottom = rune::color::hex("#2d53c9").unwrap();
-    let status = if config.is_some() {
+    let status = if !loaded {
+        // Until the saved config is known, Create and Join must not be offered over it.
+        row()
+            .label("Loading")
+            .child(Loader::new().size(12.0).build(k))
+    } else if config.is_some() {
         row()
             .fill(jewel_bottom)
             .linear_gradient(
@@ -331,19 +369,17 @@ pub fn view(d: &Dash, k: &Kit) -> El {
     .gap(6.0)
     .center()
     .radius(11.0);
-    let mut form = col()
-        .w_full()
-        .gap(14.0)
-        .child(
-            row()
-                .w_full()
-                .center_y()
-                .gap(8.0)
-                .child(text("Sync").font(font::TITLE).color(k.c.text_base))
-                .child(el().grow(1.0))
-                .child(status),
-        )
-        .child(
+    let mut form = col().w_full().gap(14.0).child(
+        row()
+            .w_full()
+            .center_y()
+            .gap(8.0)
+            .child(text("Sync").font(font::TITLE).color(k.c.text_base))
+            .child(el().grow(1.0))
+            .child(status),
+    );
+    if loaded {
+        form = form.child(
             col()
                 .w_full()
                 .gap(7.0)
@@ -361,172 +397,175 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                         .key("server"),
                 ),
         );
-    if let Some(problem) = problem {
-        form = form.child(
-            text(problem)
-                .key("server-problem")
-                .font(font::BODY)
-                .color(k.c.danger.fg)
-                .wrap()
-                .w_full(),
-        );
-    }
-    if let Some(config) = config {
-        let mut code_row = row()
-            .w_full()
-            .center_y()
-            .gap(8.0)
-            .child(text("Sync code").font(font::LABEL).color(k.c.text_base))
-            .child(el().grow(1.0));
-        if !p.reveal_code {
-            code_row = code_row.child(
-                text("••••-••••-••••-…")
-                    .key("masked-code")
-                    .label("Hidden")
-                    .font(font::BODY.mono())
-                    .color(k.c.text_muted),
-            );
-        }
-        form = form.child(
-            code_row
-                .child(
-                    Button::new(if p.reveal_code { "Hide" } else { "Show" })
-                        .on_press(|d: &mut Dash| d.settings.reveal_code = !d.settings.reveal_code)
-                        .build(k)
-                        .key("reveal-code"),
-                )
-                .child(
-                    Button::new(if p.copied_until.is_some_and(|t| t > Instant::now()) {
-                        "Copied"
-                    } else {
-                        "Copy"
-                    })
-                    .on_press_tx(copy)
-                    .build(k)
-                    .key("copy-code"),
-                ),
-        );
-        if p.reveal_code {
+        if let Some(problem) = problem {
             form = form.child(
-                text(two_lines(&config.sync_code))
-                    .key("revealed-code")
-                    .font(font::BODY.mono())
-                    .color(k.c.text_base)
-                    .selectable(true)
+                text(problem)
+                    .key("server-problem")
+                    .font(font::BODY)
+                    .color(k.c.danger.fg)
+                    .wrap()
                     .w_full(),
             );
         }
-        form = form.child(last_sync(p, k, &d.shared.tz));
-        let mut actions = row()
-            .w_full()
-            .gap(8.0)
-            .center_y()
-            .child(
-                Button::new("Turn Off Sync…")
-                    .variant(ButtonVariant::Danger)
-                    .on_press(|d: &mut Dash| d.settings.confirm_off = true)
-                    .build(k)
-                    .fill(k.c.danger.bg)
-                    .border(1.0, k.c.danger.border)
-                    .key("turn-off"),
-            )
-            .child(el().grow(1.0));
-        if p.server.text != config.server_url {
-            actions = actions.child(
-                Button::new("Save Server")
-                    .disabled(!valid_server(p) || p.working)
-                    .on_press(|d: &mut Dash| act(d, Action::Save))
-                    .build(k)
-                    .key("save-server"),
-            );
-        }
-        form = form.child(
-            actions.child(
-                Button::new(if p.sync.running {
-                    "Syncing…"
-                } else {
-                    "Sync Now"
-                })
-                .disabled(p.sync.running)
-                .on_press(|d: &mut Dash| sync::run(&d.shared, Trigger::Manual))
-                .build(k)
-                .key("sync-now"),
-            ),
-        );
-    } else if let Some(join) = &p.join {
-        form = form
-            .child(
-                col()
-                    .w_full()
-                    .gap(7.0)
-                    .child(text("Sync code").font(font::LABEL).color(k.c.text_base))
+        if let Some(config) = config {
+            let mut code_row = row()
+                .w_full()
+                .center_y()
+                .gap(8.0)
+                .child(text("Sync code").font(font::LABEL).color(k.c.text_base))
+                .child(el().grow(1.0));
+            if !p.reveal_code {
+                code_row = code_row.child(
+                    text("••••-••••-••••-…")
+                        .key("masked-code")
+                        .label("Hidden")
+                        .font(font::BODY.mono())
+                        .color(k.c.text_muted),
+                );
+            }
+            form = form.child(
+                code_row
                     .child(
-                        rune::text_input(join, font::BODY.mono())
-                            .label("Sync code")
-                            .placeholder("Paste the code from another device", k.c.text_muted)
-                            .w_full()
-                            .min_h(80.0)
-                            .padding(10.0)
-                            .radius(7.0)
-                            .fill(k.c.bg_base)
-                            .border(1.0, k.c.border_weak)
-                            .color(k.c.text_base)
-                            .caret(k.c.text_base, k.selection())
-                            .on_edit(|d: &mut Dash| d.settings.join.as_mut().unwrap())
-                            .on_input_key(|d: &mut Dash, event, _| {
-                                if event.key == rune::Key::Enter {
-                                    act(d, Action::Join);
-                                    true
-                                } else {
-                                    false
-                                }
+                        Button::new(if p.reveal_code { "Hide" } else { "Show" })
+                            .on_press(|d: &mut Dash| {
+                                d.settings.reveal_code = !d.settings.reveal_code
                             })
-                            .key("join-code"),
+                            .build(k)
+                            .key("reveal-code"),
+                    )
+                    .child(
+                        Button::new(if p.copied_until.is_some_and(|t| t > Instant::now()) {
+                            "Copied"
+                        } else {
+                            "Copy"
+                        })
+                        .on_press_tx(copy)
+                        .build(k)
+                        .key("copy-code"),
                     ),
-            )
-            .child(
+            );
+            if p.reveal_code {
+                form = form.child(
+                    text(two_lines(&config.sync_code))
+                        .key("revealed-code")
+                        .font(font::BODY.mono())
+                        .color(k.c.text_base)
+                        .selectable(true)
+                        .w_full(),
+                );
+            }
+            form = form.child(last_sync(p, k, &d.shared.tz));
+            let mut actions = row()
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    Button::new("Turn Off Sync…")
+                        .variant(ButtonVariant::Danger)
+                        .on_press(|d: &mut Dash| d.settings.confirm_off = true)
+                        .build(k)
+                        .fill(k.c.danger.bg)
+                        .border(1.0, k.c.danger.border)
+                        .key("turn-off"),
+                )
+                .child(el().grow(1.0));
+            if p.server.text != config.server_url {
+                actions = actions.child(
+                    Button::new("Save Server")
+                        .disabled(!valid_server(p) || p.working)
+                        .on_press(|d: &mut Dash| act(d, Action::Save))
+                        .build(k)
+                        .key("save-server"),
+                );
+            }
+            form = form.child(
+                actions.child(
+                    Button::new(if p.sync.running {
+                        "Syncing…"
+                    } else {
+                        "Sync Now"
+                    })
+                    .disabled(p.sync.running)
+                    .on_press(|d: &mut Dash| sync::run(&d.shared, Trigger::Manual))
+                    .build(k)
+                    .key("sync-now"),
+                ),
+            );
+        } else if let Some(join) = &p.join {
+            form = form
+                .child(
+                    col()
+                        .w_full()
+                        .gap(7.0)
+                        .child(text("Sync code").font(font::LABEL).color(k.c.text_base))
+                        .child(
+                            rune::text_input(join, font::BODY.mono())
+                                .label("Sync code")
+                                .placeholder("Paste the code from another device", k.c.text_muted)
+                                .w_full()
+                                .min_h(80.0)
+                                .padding(10.0)
+                                .radius(7.0)
+                                .fill(k.c.bg_base)
+                                .border(1.0, k.c.border_weak)
+                                .color(k.c.text_base)
+                                .caret(k.c.text_base, k.selection())
+                                .on_edit(|d: &mut Dash| d.settings.join.as_mut().unwrap())
+                                .on_input_key(|d: &mut Dash, event, _| {
+                                    if event.key == rune::Key::Enter {
+                                        act(d, Action::Join);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .key("join-code"),
+                        ),
+                )
+                .child(
+                    row()
+                        .w_full()
+                        .gap(8.0)
+                        .child(el().grow(1.0))
+                        .child(
+                            Button::new("Cancel")
+                                .on_press(|d: &mut Dash| d.settings.cancel_join())
+                                .build(k)
+                                .key("cancel-join"),
+                        )
+                        .child(
+                            Button::new("Join")
+                                .variant(ButtonVariant::Submit)
+                                .disabled(!valid_server(p) || join.text.is_empty() || p.working)
+                                .on_press(|d: &mut Dash| act(d, Action::Join))
+                                .build(k)
+                                .key("join")
+                                .default_button(),
+                        ),
+                );
+        } else {
+            form = form.child(
                 row()
                     .w_full()
                     .gap(8.0)
                     .child(el().grow(1.0))
                     .child(
-                        Button::new("Cancel")
-                            .on_press(|d: &mut Dash| d.settings.cancel_join())
+                        Button::new("Join with Code…")
+                            .disabled(!valid_server(p) || p.working)
+                            .on_press(|d: &mut Dash| d.settings.begin_join())
                             .build(k)
-                            .key("cancel-join"),
+                            .key("begin-join"),
                     )
                     .child(
-                        Button::new("Join")
+                        Button::new("Create New Sync Code")
                             .variant(ButtonVariant::Submit)
-                            .disabled(!valid_server(p) || join.text.is_empty() || p.working)
-                            .on_press(|d: &mut Dash| act(d, Action::Join))
+                            .disabled(!valid_server(p) || p.working)
+                            .on_press(|d: &mut Dash| act(d, Action::Create))
                             .build(k)
-                            .key("join")
-                            .default_button(),
+                            .key("create-code"),
                     ),
             );
-    } else {
-        form = form.child(
-            row()
-                .w_full()
-                .gap(8.0)
-                .child(el().grow(1.0))
-                .child(
-                    Button::new("Join with Code…")
-                        .disabled(!valid_server(p) || p.working)
-                        .on_press(|d: &mut Dash| d.settings.begin_join())
-                        .build(k)
-                        .key("begin-join"),
-                )
-                .child(
-                    Button::new("Create New Sync Code")
-                        .variant(ButtonVariant::Submit)
-                        .disabled(!valid_server(p) || p.working)
-                        .on_press(|d: &mut Dash| act(d, Action::Create))
-                        .build(k)
-                        .key("create-code"),
-                ),
-        );
+        }
     }
     if let Some(error) = &p.error {
         form = form.child(
@@ -547,13 +586,15 @@ pub fn view(d: &Dash, k: &Kit) -> El {
             platform::DEVICE_NOUN
         )
     };
-    form = form.child(
-        text(footer)
-            .font(font::BODY)
-            .color(k.c.text_muted)
-            .wrap()
-            .w_full(),
-    );
+    if loaded {
+        form = form.child(
+            text(footer)
+                .font(font::BODY)
+                .color(k.c.text_muted)
+                .wrap()
+                .w_full(),
+        );
+    }
     if p.autostart.is_some() || p.safari.is_some() {
         form = form
             .child(el().w_full().h(1.0).fill(k.c.border_weak))
@@ -574,26 +615,7 @@ pub fn view(d: &Dash, k: &Kit) -> El {
                     Switch::new(auto.on)
                         .label("Launch at login")
                         .hide_label()
-                        .on_toggle(|d: &mut Dash| {
-                            let Some(auto) = &mut d.settings.autostart else {
-                                return;
-                            };
-                            let on = !auto.on;
-                            if platform::autostart() == Some(on) {
-                                auto.on = on;
-                                return;
-                            }
-                            match platform::set_autostart(on) {
-                                Ok(note) => {
-                                    auto.on = on;
-                                    auto.note = note;
-                                }
-                                Err(error) => {
-                                    auto.on = platform::autostart().unwrap_or(auto.on);
-                                    auto.note = Some(error);
-                                }
-                            }
-                        })
+                        .on_toggle(toggle_autostart)
                         .build(k)
                         .key("autostart"),
                 ),

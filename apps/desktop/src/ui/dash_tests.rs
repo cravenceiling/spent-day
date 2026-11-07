@@ -410,3 +410,86 @@ fn day_keys_and_escape_at_the_top() {
     assert_eq!(rt.state.drill, Drill::Day);
     assert!(!rt.state.details_open);
 }
+
+fn configured_runtime() -> Runtime<Dash> {
+    let demo = Demo::with_timezone(new_york());
+    *demo.sync.lock().unwrap() = Some(spentday_core::SyncConfig {
+        server_url: "https://sync.example.com".into(),
+        sync_code: "7KQ2-M3XP".into(),
+    });
+    let shared = Arc::new(Shared {
+        store: Arc::new(demo),
+        demo: true,
+        tz: new_york(),
+        icons: Default::default(),
+        sync: Mutex::default(),
+        ui: OnceLock::new(),
+    });
+    let mut dash = Dash::new(shared, date(2026, 10, 28));
+    dash.load_now();
+    let mut rt = Runtime::new(dash, dash_view::view, (1280.0, 800.0), Env::new(true, 1.0));
+    rt.on_key = Some(Dash::on_key);
+    settle(&mut rt, 0.5);
+    rt
+}
+
+fn sync_status(rt: &Runtime<Dash>) -> Option<String> {
+    let elements = rt.elements();
+    let badge = elements
+        .iter()
+        .find(|e| e.key.as_deref() == Some("sync-status"))?;
+    let prefix = format!("{}/", badge.path);
+    elements
+        .iter()
+        .filter(|e| e.path.starts_with(&prefix))
+        .find_map(|e| e.text.clone())
+}
+
+fn assert_on(rt: &Runtime<Dash>) {
+    assert_eq!(rt.state.overlay, Overlay::Settings);
+    assert_eq!(sync_status(rt).as_deref(), Some("On"));
+    assert!(rt.find("create-code").is_none());
+    assert!(rt.find("begin-join").is_none());
+    assert!(rt.find("sync-now").is_some());
+    assert!(rt.state.settings.sync.configured, "Sync Now is offered");
+    assert!(rt.state.shared.sync.lock().unwrap().configured);
+}
+
+#[test]
+fn settings_on_a_configured_store_shows_on_and_never_offers_create() {
+    let mut rt = configured_runtime();
+    rt.update(|d, tx| {
+        // The load is still in flight.
+        d.settings.working = true;
+        crate::ui::settings::open(d, tx);
+    });
+    settle(&mut rt, 0.4);
+    assert_eq!(rt.state.overlay, Overlay::Settings);
+    assert_eq!(sync_status(&rt), None);
+    assert!(rt.find("create-code").is_none());
+    assert!(rt.find("begin-join").is_none());
+    assert!(rt.find("server").is_none());
+
+    let mut rt = configured_runtime();
+    key(&mut rt, Key::Command(','), true);
+    assert_on(&rt);
+
+    let mut rt = configured_runtime();
+    let (x, y) = rt.find("menu-button").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    settle(&mut rt, 0.4);
+    let item = rt
+        .elements()
+        .into_iter()
+        .rfind(|e| e.text.as_deref() == Some("Settings…") && !e.exiting)
+        .unwrap();
+    let (x, y) = (
+        item.rect[0] + item.rect[2] / 2.0,
+        item.rect[1] + item.rect[3] / 2.0,
+    );
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    settle(&mut rt, 0.4);
+    assert_on(&rt);
+}

@@ -350,7 +350,7 @@ impl Dash {
         } else if chord("mod+right") {
             self.step_day(1, tx);
         } else if chord("mod+comma") {
-            self.overlay = Overlay::Settings;
+            crate::ui::settings::open(self, tx);
         } else if chord("mod+w") {
             tx.close_window();
         } else if chord("mod+q") {
