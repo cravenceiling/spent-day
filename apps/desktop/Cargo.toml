@@ -7,6 +7,7 @@ description = "Screen time across your devices"
 
 [package.metadata.deb]
 name = "spentday"
+extended-description = "Records screen time in the background and shows it per app and site. Syncs with other devices through spentday-server."
 maintainer = "Spent Day contributors"
 copyright = "2026 Spent Day contributors"
 license-file = ["../../LICENSE", "0"]
