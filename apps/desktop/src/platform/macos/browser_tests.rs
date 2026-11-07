@@ -162,3 +162,48 @@ fn pending_queries_for_two_bundles_are_independent() {
         Some(page("https://a.example/"))
     );
 }
+
+fn script(source: &str) -> Retained<NSAppleScript> {
+    NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(source)).unwrap()
+}
+
+#[test]
+fn applescript_errors_return_their_number_and_the_worker_keeps_answering() {
+    let (answered, answers) = mpsc::channel();
+    let pages = BrowserPages::spawn(
+        Arc::new(|_| Some(1)),
+        Arc::new(Instant::now),
+        || {
+            let mut scripts = Scripts::default();
+            for (bundle, source) in [
+                ("com.google.Chrome", "error number -1728"),
+                ("com.brave.Browser", "error number -1743"),
+                ("com.vivaldi.Vivaldi", "return {\"https://a.example/\"}"),
+            ] {
+                scripts.compiled.insert(bundle.into(), script(source));
+            }
+            assert_eq!(scripts.run("com.google.Chrome"), Err(-1728));
+            assert_eq!(scripts.run("com.brave.Browser"), Err(-1743));
+            move |id: &str| scripts.run(id)
+        },
+        move || answered.send(()).unwrap(),
+    );
+    for bundle in [
+        "com.google.Chrome",
+        "com.brave.Browser",
+        "com.vivaldi.Vivaldi",
+    ] {
+        assert_eq!(pages.tab(bundle, 200, 0), None);
+        answers.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    assert!(pages.cache.lock().unwrap().pending.is_empty());
+    assert_eq!(
+        pages.tab("com.google.Chrome", 200, 0),
+        Some(BrowserTab::NoPage)
+    );
+    assert_eq!(pages.tab("com.brave.Browser", 200, 0), None);
+    assert_eq!(
+        pages.tab("com.vivaldi.Vivaldi", 200, 0),
+        Some(page("https://a.example/"))
+    );
+}

@@ -1,13 +1,16 @@
 use std::collections::{HashMap, HashSet};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use objc2::{
-    AnyThread,
+    AnyThread, msg_send,
     rc::{Retained, autoreleasepool},
+    runtime::AnyObject,
 };
 use objc2_foundation::{
-    NSAppleEventDescriptor, NSAppleScript, NSAppleScriptErrorNumber, NSNumber, NSString,
+    NSAppleEventDescriptor, NSAppleScript, NSAppleScriptErrorNumber, NSDictionary, NSNumber,
+    NSString,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,7 +131,11 @@ impl BrowserPages {
                         {
                             None
                         } else {
-                            match query(&request.bundle) {
+                            // A panic here would end the thread with this bundle still pending,
+                            // and every browser would go unrecorded until restart.
+                            match catch_unwind(AssertUnwindSafe(|| query(&request.bundle)))
+                                .unwrap_or(Err(0))
+                            {
                                 Ok(tab) => Some(tab),
                                 Err(-1728) => Some(BrowserTab::NoPage),
                                 Err(code) => {
@@ -214,16 +221,17 @@ impl Scripts {
             }
             self.compiled.insert(bundle.into(), script);
         }
-        let mut error = None;
-        let result = unsafe { self.compiled[bundle].executeAndReturnError(Some(&mut error)) };
-        if let Some(error) = error {
-            let code = error
-                .objectForKey(unsafe { NSAppleScriptErrorNumber })
+        let mut error: Option<Retained<NSDictionary<NSString, AnyObject>>> = None;
+        // The generated `executeAndReturnError` promises a non-nil result and panics on the nil
+        // every failed script returns, so the selector is sent with an optional return.
+        let result: Option<Retained<NSAppleEventDescriptor>> =
+            unsafe { msg_send![&*self.compiled[bundle], executeAndReturnError: Some(&mut error)] };
+        match (result, error) {
+            (Some(result), None) => Ok(decode(&result)),
+            (_, error) => Err(error
+                .and_then(|e| e.objectForKey(unsafe { NSAppleScriptErrorNumber }))
                 .and_then(|v| v.downcast_ref::<NSNumber>().map(|n| n.intValue()))
-                .unwrap_or(0);
-            Err(code)
-        } else {
-            Ok(decode(&result))
+                .unwrap_or(0)),
         }
     }
 }
