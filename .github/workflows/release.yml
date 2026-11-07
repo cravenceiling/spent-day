@@ -191,12 +191,19 @@ jobs:
             ~/.cargo/git
           key: deb-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: deb-cargo-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/spentday/cargo-deb
+          key: linux-amd64-cargo-deb-3.8.0
       - name: Build Debian package on Ubuntu 24.04
         run: |
-          docker build --build-arg BASE=ubuntu:24.04 -t spentday-deb -f packaging/linux/Dockerfile packaging/linux
-          mkdir -p "$HOME/.cargo"
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -v "$HOME/.cargo:/cargo" \
-            -e CARGO_HOME=/cargo spentday-deb /src/packaging/linux/build-deb.sh
+          docker build --build-arg BASE=ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 -t spentday-deb -f packaging/linux/Dockerfile packaging/linux
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git" "$HOME/.cache/spentday/cargo-deb"
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" \
+            -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+            -v "$HOME/.cargo/git:/usr/local/cargo/git" \
+            -v "$HOME/.cache/spentday/cargo-deb:/opt/cargo-deb" \
+            spentday-deb /src/packaging/linux/build-deb.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deb-x86_64
@@ -223,9 +230,11 @@ jobs:
       - name: Build AppImage on Ubuntu 22.04
         run: |
           docker build -t spentday-appimage -f packaging/linux/Dockerfile packaging/linux
-          mkdir -p "$HOME/.cargo"
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -v "$HOME/.cargo:/cargo" \
-            -e CARGO_HOME=/cargo spentday-appimage /src/packaging/linux/build-appimage.sh
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git"
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" \
+            -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+            -v "$HOME/.cargo/git:/usr/local/cargo/git" \
+            spentday-appimage /src/packaging/linux/build-appimage.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: appimage-x86_64

@@ -48,11 +48,11 @@ docker run --rm \
 Run the same scripts as CI from the repository root:
 
 ```sh
-docker build --build-arg BASE=ubuntu:24.04 -t spentday-deb -f packaging/linux/Dockerfile packaging/linux
+docker build --build-arg BASE=ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 -t spentday-deb -f packaging/linux/Dockerfile packaging/linux
 docker build -t spentday-appimage -f packaging/linux/Dockerfile packaging/linux
 docker volume create spentday-release-target
 docker run --rm -v "$PWD:/src" -v spentday-release-target:/target \
-  -e CARGO_HOME=/target/cargo -e CARGO_TARGET_DIR=/target/deb \
+  -e CARGO_HOME=/target/cargo -e CARGO_INSTALL_ROOT=/target/cargo-deb -e CARGO_TARGET_DIR=/target/deb \
   spentday-deb /src/packaging/linux/build-deb.sh
 docker run --rm -v "$PWD:/src" -v spentday-release-target:/target \
   -e CARGO_HOME=/target/cargo -e CARGO_TARGET_DIR=/target/appimage \
