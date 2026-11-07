@@ -47,13 +47,38 @@ Download an x86_64 artifact from [Releases](https://github.com/cravenceiling/spe
 | AppImage | Ubuntu 22.04, glibc 2.35 | `chmod +x SpentDay-*.AppImage`, then `./SpentDay-<version>-x86_64.AppImage` |
 | Arch package | Rolling Arch Linux | `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst` |
 
+The GNOME and KDE Wayland focus helpers require GNOME 45+ or Plasma 6, regardless of the glibc floor. Older GNOME and Plasma versions do not support these helpers.
+
 ### Debian and Ubuntu
 
 The `.deb` installs `/usr/bin/spentday`, the desktop entry, icon, systemd user unit, and system-wide GNOME and KWin helper files. It depends on the runtime libraries and recommends `mesa-vulkan-drivers`. Debian 13 and Ubuntu 24.04 or later meet its libc floor. Install the Vulkan driver for the GPU if Mesa is not appropriate.
 
-Start the app with `spentday`. To track at login, run `systemctl --user enable --now spentday.service` as your desktop user. The source installer's default autostart is a per-user choice. The package ships an opt-in unit under `/usr/lib/systemd/user` instead of imposing `/etc/xdg/autostart` on every account. The unit needs the environment described under [Linux sessions](#linux-sessions).
+Before moving from `linux/install.sh` to the `.deb`, quit Spent Day and run `systemctl --user disable --now spentday` if the source install used `--systemd`. Remove the files below so the old binary, unit and helpers do not shadow the package. These are the default paths; substitute your `PREFIX`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` if customized.
 
-On GNOME, log out and back in, then run `gnome-extensions enable spentday@spent.day`. On KDE, enable Spent Day Focus in System Settings > Window Management > KWin Scripts, then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup.
+```sh
+rm -f ~/.local/bin/spentday \
+  ~/.local/share/applications/day.spent.SpentDay.desktop \
+  ~/.local/share/icons/hicolor/scalable/apps/day.spent.SpentDay.svg \
+  ~/.config/autostart/day.spent.SpentDay.desktop \
+  ~/.config/systemd/user/spentday.service
+rm -rf ~/.local/share/gnome-shell/extensions/spentday@spent.day \
+  ~/.local/share/kwin/scripts/spentday-focus
+systemctl --user daemon-reload
+```
+
+Keep `~/.local/share/spentday`, which holds your data. Install the `.deb` after removing the old files.
+
+Start the app with `spentday`. The `.deb` does not start tracking at login by itself. Run `systemctl --user enable --now spentday` as your desktop user to start tracking now and at login. The unit needs the environment described under [Linux sessions](#linux-sessions). As an alternative, add `/usr/bin/spentday --background` to your desktop's startup applications. Choose one startup method.
+
+On GNOME 45+, enable the packaged system-wide extension with `gnome-extensions enable spentday@spent.day`, then log out and back in. If GNOME does not see the newly installed extension yet, log out and back in before running the command too.
+
+On Plasma 6, enable the packaged KWin script with the same command as `install.sh`:
+
+```sh
+kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true
+```
+
+Then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup. Use the packaged helpers with Debian and Arch packages. `--install-helpers` is for AppImage and source builds; its user copies shadow packaged helpers.
 
 ### AppImage
 
@@ -71,7 +96,7 @@ Use recent Mesa for rendering. The glibc floor alone does not guarantee that an 
 ./SpentDay-<version>-x86_64.AppImage --appimage-extract-and-run
 ```
 
-From a GNOME or KDE Wayland session, install and enable the focus helper:
+From a GNOME 45+ or Plasma 6 Wayland session, install and enable the focus helper:
 
 ```sh
 ./SpentDay-<version>-x86_64.AppImage --install-helpers
@@ -79,7 +104,7 @@ From a GNOME or KDE Wayland session, install and enable the focus helper:
 ./SpentDay-<version>-x86_64.AppImage --appimage-extract-and-run --install-helpers
 ```
 
-`spentday --install-helpers` also works with a native binary. It writes the GNOME extension to `$XDG_DATA_HOME/gnome-shell/extensions/spentday@spent.day` or installs the KWin package at `$XDG_DATA_HOME/kwin/scripts/spentday-focus`, using `~/.local/share` when `XDG_DATA_HOME` is unset. GNOME uses `gnome-extensions enable`; KDE needs `kpackagetool6`, `kwriteconfig6` and `qdbus6`, as with `linux/install.sh`. It enables the KWin script, unloads the previous copy and starts it again. Follow any printed logout instructions. Helper updates may need a logout and login.
+`spentday --install-helpers` also works with a source-built binary. It writes the GNOME extension to `$XDG_DATA_HOME/gnome-shell/extensions/spentday@spent.day` or installs the KWin package at `$XDG_DATA_HOME/kwin/scripts/spentday-focus`, using `~/.local/share` when `XDG_DATA_HOME` is unset. GNOME uses `gnome-extensions enable`; KDE needs `kpackagetool6`, `kwriteconfig6` and `qdbus6`, as with `linux/install.sh`. It enables the KWin script, unloads the previous copy and starts it again. Follow any printed logout instructions. Helper updates may need a logout and login.
 
 The AppImage does not register an autostart entry or systemd service. To track at login, add its absolute path followed by `--background` to the desktop's startup applications or compositor config.
 
@@ -92,7 +117,7 @@ The AppImage does not register an autostart entry or systemd service. To track a
 | `--dashboard` | Open the dashboard. |
 | `--settings` | Open the dashboard with its Settings overlay. |
 | `--day YYYY-MM-DD` | Select a local date. A missing or invalid date falls back to today. |
-| `--install-helpers` | Install and enable the current user's GNOME or KDE focus helper on Linux, then exit. |
+| `--install-helpers` | Install and enable the current user's GNOME 45+ or Plasma 6 focus helper for AppImage or source builds, then exit. |
 | `--demo` | Use fixed sample data, without opening the database, tracking, listening for the extension or auto syncing. |
 
 The last launch flag wins. Arguments the app does not consume go to Rune, including `--snap`, `--scene`, `--window` and `--tree`.
