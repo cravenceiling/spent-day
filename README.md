@@ -58,12 +58,26 @@ To sync, run [`spentday-server`](server/README.md) behind HTTPS, create a sync c
 
 ## Releases
 
-[Releases](https://github.com/cravenceiling/spent-day/releases) provide two downloads:
+Download from [Releases](https://github.com/cravenceiling/spent-day/releases):
 
-- `SpentDay-<version>-arm64.dmg` for Apple Silicon Macs. Open it and drag Spent Day to Applications. The app is not notarized. After the first blocked launch, open System Settings > Privacy & Security > Open Anyway, then confirm the launch. Repeat this after every download, including updates.
-- `spentday-<version>-1-x86_64.pkg.tar.zst` for Arch Linux. Install with `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst`. Run `systemctl --user enable --now spentday.service` as your desktop user to start Spent Day now and at login. Alternatively, run `mkdir -p ~/.config/autostart` and copy `/usr/share/applications/day.spent.SpentDay-autostart.desktop` to `~/.config/autostart/day.spent.SpentDay.desktop`, then run `spentday --background` to start it now. On GNOME, log out and back in, then run `gnome-extensions enable spentday@spent.day`. On KDE, enable Spent Day Focus in System Settings > Window Management > KWin Scripts, then log out and back in. After updates, log out and back in to reload either helper.
+| Platform | Download | Get started |
+|---|---|---|
+| macOS 14+, Apple Silicon | `SpentDay-<version>-arm64.dmg` | Open it and drag Spent Day to Applications. |
+| Debian 13 / Ubuntu 24.04+, x86_64 | `spentday_<version>-1_amd64.deb` | `sudo apt install ./spentday_<version>-1_amd64.deb` |
+| Linux, x86_64, glibc 2.35+ | `SpentDay-<version>-x86_64.AppImage` | `chmod +x SpentDay-*.AppImage`, then `./SpentDay-<version>-x86_64.AppImage` |
+| Arch Linux, x86_64 | `spentday-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst` |
 
-To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds both downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload the two downloads as workflow artifacts without publishing a release.
+The macOS app is not notarized. After each download, allow the blocked launch in System Settings > Privacy & Security > Open Anyway.
+
+The `.deb` is built on Ubuntu 24.04 and requires glibc 2.39 or later. The AppImage is built on Ubuntu 22.04 and requires glibc 2.35 or later. It includes the app, desktop entry, icon and embedded GNOME/KDE helpers. Install the host's Vulkan driver, Wayland, xkbcommon and X11 libraries; these are not bundled. See the [Linux release guide](apps/desktop/README.md#linux-release-downloads) for package commands and FUSE-free launch.
+
+Debian and Arch packages ship an opt-in systemd user unit. Run `systemctl --user enable --now spentday.service` from your desktop session to start tracking now and at login. No system-wide autostart entry starts tracking for other users. The unit needs the compositor environment in the user manager; see [Linux sessions](apps/desktop/README.md#linux-sessions).
+
+Arch also ships a per-user autostart template. As an alternative to the unit, copy `/usr/share/applications/day.spent.SpentDay-autostart.desktop` to `~/.config/autostart/day.spent.SpentDay.desktop`, creating that directory first, then run `spentday --background`.
+
+On GNOME Wayland, log out and back in, then run `gnome-extensions enable spentday@spent.day`. On KDE Wayland, enable Spent Day Focus in System Settings > Window Management > KWin Scripts, then log out and back in. AppImage users must first run `./SpentDay-<version>-x86_64.AppImage --install-helpers` from their GNOME or KDE session. After helper updates, log out and back in to reload them.
+
+To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds all four downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload all four downloads as workflow artifacts without publishing a release.
 
 Set up the [release signing secrets](apps/desktop/README.md#release-signing) once so macOS Automation grants survive updates.
 
