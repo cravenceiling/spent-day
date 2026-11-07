@@ -96,25 +96,14 @@ pub fn panel(s: &mut Panel) {
     s.total_ms = 49_800_000;
     s.sync.configured = true;
     s.rows = [
-        (
-            "Xcode",
-            "com.apple.dt.Xcode",
-            "com.apple.dt.Xcode",
-            21_900_000,
-        ),
-        ("Google Chrome", "chrome", "com.google.Chrome", 7_200_000),
-        (
-            "Terminal",
-            "com.apple.Terminal",
-            "com.apple.Terminal",
-            3_600_000,
-        ),
+        ("Xcode", "com.apple.dt.Xcode", 21_900_000),
+        ("Google Chrome", "chrome", 7_200_000),
+        ("Terminal", "com.apple.Terminal", 3_600_000),
     ]
     .into_iter()
-    .map(|(name, key, id, total_ms)| PanelRow {
+    .map(|(name, key, total_ms)| PanelRow {
         key: format!("app:{key}"),
         name: name.into(),
-        app_ids: vec![id.into()],
         total_ms,
         icon: None,
     })

@@ -17,7 +17,6 @@ pub struct Panel {
     pub rows: Vec<PanelRow>,
     pub palette: Palette,
     pub sync: SyncView,
-    pub armed: bool,
     pub generation: u64,
     images: Option<Arc<ImageCache>>,
 }
@@ -25,7 +24,6 @@ pub struct Panel {
 pub struct PanelRow {
     pub key: String,
     pub name: String,
-    pub app_ids: Vec<String>,
     pub total_ms: i64,
     pub icon: Option<rune::Image>,
 }
@@ -38,7 +36,6 @@ impl Panel {
             rows: Vec::new(),
             palette: Palette::default(),
             sync: SyncView::default(),
-            armed: false,
             generation: 0,
             images: None,
         }
@@ -87,7 +84,6 @@ impl Panel {
                         PanelRow {
                             key: format!("app:{}", app.app_key),
                             name: app.app_name,
-                            app_ids: app.app_ids,
                             total_ms: app.total_ms,
                             icon,
                         }
@@ -109,16 +105,6 @@ impl Panel {
             },
         );
         false
-    }
-
-    pub fn on_focus(&mut self, focused: bool, tx: &mut Tx) {
-        if focused {
-            self.armed = true;
-            self.refresh(tx);
-        } else if self.armed {
-            self.armed = false;
-            tx.close_window();
-        }
     }
 
     pub fn on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {

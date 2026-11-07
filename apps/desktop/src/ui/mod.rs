@@ -5,8 +5,6 @@ pub mod dash;
 pub mod dash_view;
 pub mod details;
 pub mod fatal;
-// `PanelRow::app_ids` and `Panel::on_focus` wait on the panel polish running in parallel.
-#[expect(dead_code)]
 pub mod panel;
 pub mod settings;
 pub mod strip;
