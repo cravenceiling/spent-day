@@ -189,7 +189,7 @@ Real GNOME, KDE and Hyprland sessions remain manual checks. Tests use GNOME and 
 
 Run `scripts/make-release-cert.sh` once. It writes a ten-year `Spent Day Release` identity and password into a temporary directory and prints the `gh secret set` commands for `MACOS_SIGN_P12` and `MACOS_SIGN_P12_PASSWORD`. It changes no keychain or GitHub settings itself. Keep a private backup, set the repository secrets and remove the temporary files. Reuse the same identity for later releases.
 
-Tag and manual release builds import the identity into a temporary keychain, trust it for code signing and remove it after the build. Without secrets they sign ad hoc and warn. Pull request builds always sign ad hoc and never import secrets. The app is not notarized. After every download, including updates, allow the blocked launch in System Settings > Privacy & Security > Open Anyway.
+Tag and manual release builds import the identity into a temporary keychain and trust it for code signing. After the build they delete the keychain; the trust setting goes with the runner VM. Without secrets they sign ad hoc and warn. Pull request builds always sign ad hoc and never import secrets. The app is not notarized. After every download, including updates, allow the blocked launch in System Settings > Privacy & Security > Open Anyway.
 
 A manual Release workflow run uploads the DMG, Arch package, `.deb` and AppImage without publishing. Download the DMG and check its mounted app:
 
