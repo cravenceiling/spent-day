@@ -1,4 +1,5 @@
 use std::process::{Command, ExitCode, Stdio};
+use std::time::Duration;
 
 pub fn available() -> bool {
     // A temporary instance probes drivers without creating a device or retaining Rune's cache.
@@ -23,12 +24,22 @@ pub fn check() -> Result<(), ExitCode> {
 
 pub fn notify(title: &str, body: &str) {
     eprintln!("spentday: {title}\n{body}");
-    let _ = Command::new("notify-send")
+    let Ok(mut child) = Command::new("notify-send")
         .args(["--app-name=Spent Day", "--urgency=critical", title, body])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn();
+        .spawn()
+    else {
+        return;
+    };
+    // Callers exit next, and systemd kills a service's leftover processes when its main one exits.
+    for _ in 0..20 {
+        if !matches!(child.try_wait(), Ok(None)) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn driver_help(release: &str) -> &'static str {

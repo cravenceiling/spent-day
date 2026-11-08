@@ -27,18 +27,23 @@ if [ "${SPENTDAY_INSTALL:-}" != appimage ]; then
     esac
 fi
 if [ "$format" != AppImage ]; then
+    sudo_failed=
     if ! command -v sudo >/dev/null 2>&1; then
-        echo 'sudo is unavailable; installing the AppImage for the current user.'
-        format=AppImage
+        sudo_failed='sudo is unavailable'
     elif ! sudo -v </dev/null; then
-        echo 'sudo authorization failed; installing the AppImage for the current user.'
+        sudo_failed='sudo authorization failed'
+    fi
+    if [ -n "$sudo_failed" ]; then
+        # An AppImage beside the package would shadow it in PATH and the app launcher.
+        [ ! -e /usr/bin/spentday ] || fail "$sudo_failed, and updating the installed Spent Day package needs it."
+        echo "$sudo_failed; installing the AppImage for the current user."
         format=AppImage
     fi
 fi
 bin=/usr/bin/spentday
 if [ "$format" = AppImage ]; then bin="$HOME/.local/bin/spentday"; fi
 was_installed=false
-if [ -e "$bin" ]; then was_installed=true; fi
+if [ -e /usr/bin/spentday ] || [ -e "$HOME/.local/bin/spentday" ]; then was_installed=true; fi
 tmp=$(mktemp -d)
 chmod 755 "$tmp"
 trap 'rm -rf "$tmp"' 0
@@ -167,9 +172,9 @@ if [ "$was_installed" = false ] && [ "${SPENTDAY_NO_AUTOSTART:-}" != 1 ]; then
     esac
     if [ "$manual" = true ]; then
         case "$desktop" in
-            *hyprland*) printf 'To start at login, add to ~/.config/hypr/autostart.conf or hyprland.conf: exec-once = "%s" --background\n' "$bin" ;;
-            *sway*) printf 'To start at login, add to ~/.config/sway/config: exec "%s" --background\n' "$bin" ;;
-            *i3*) printf 'To start at login, add to ~/.config/i3/config: exec "%s" --background\n' "$bin" ;;
+            *hyprland*) printf "To start at login, add to ~/.config/hypr/autostart.conf or hyprland.conf: exec-once = '%s' --background\n" "$bin" ;;
+            *sway*) printf "To start at login, add to ~/.config/sway/config: exec '%s' --background\n" "$bin" ;;
+            *i3*) printf "To start at login, add to ~/.config/i3/config: exec '%s' --background\n" "$bin" ;;
         esac
     else
         "$bin" --enable-autostart </dev/null || fail 'Launch at login could not be enabled. Open Settings > Launch at login after fixing the error above.'
@@ -211,16 +216,23 @@ if [ -n "${SSH_CONNECTION:-}" ]; then
     if running; then
         echo 'Restart Spent Day from your desktop session to use the new version.'
     else
-        echo 'No desktop session found. Open Spent Day after logging in.'
+        echo 'Open Spent Day from your desktop session.'
     fi
 elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     if systemctl --user is-active --quiet spentday.service </dev/null 2>/dev/null; then
-        systemctl --user restart spentday.service </dev/null
+        systemctl --user daemon-reload </dev/null || true
+        unit_bin=$(systemctl --user show -p ExecStart --value spentday.service </dev/null | sed -n 's/.*path=\(.*\) ; argv\[\].*/\1/p')
+        if [ "$unit_bin" != "$bin" ]; then
+            echo "spentday.service runs $unit_bin, not $bin. Update its ExecStart, then run: systemctl --user restart spentday"
+        else
+            systemctl --user restart spentday.service </dev/null \
+                || echo 'Could not restart spentday.service. Run: systemctl --user restart spentday'
+        fi
     elif dbus_call NameHasOwner >/dev/null 2>&1; then
         if running; then
             pid=$(dbus_call GetConnectionUnixProcessID | sed -n 's/^u \([0-9][0-9]*\)$/\1/p; s/^(uint32 \([0-9][0-9]*\),)$/\1/p')
             [ -n "$pid" ] || fail 'Could not find the running Spent Day process. Restart it from your desktop session.'
-            kill -TERM "$pid"
+            kill -TERM "$pid" 2>/dev/null || true
             attempts=0
             while running; do
                 [ "$attempts" -lt 15 ] || fail 'Spent Day is still stopping. Restart it from your desktop session.'
