@@ -193,6 +193,10 @@ pub fn run(opts: Opts) -> ExitCode {
             Launch::Dashboard | Launch::Settings => true,
             Launch::Default => cfg!(target_os = "linux") || onboarding == Some(false),
         };
+        #[cfg(target_os = "linux")]
+        if show && let Err(code) = crate::gpu::check() {
+            return code;
+        }
         let (activate, fatal) = (dash.clone(), fatal.clone());
         let on_activate = Box::new(move |show: bool, token: String| {
             if show {
@@ -208,16 +212,6 @@ pub fn run(opts: Opts) -> ExitCode {
             Instance::Forwarded => return ExitCode::SUCCESS,
             Instance::Primary(guard) => _instance = Some(guard),
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    if !opts
-        .rune
-        .iter()
-        .any(|arg| matches!(arg.as_str(), "--list-scenes" | "--list-windows" | "--html"))
-        && let Err(code) = crate::gpu::check()
-    {
-        return code;
     }
 
     let (store, core, startup_error): (Arc<dyn Store>, _, _) = if demo {

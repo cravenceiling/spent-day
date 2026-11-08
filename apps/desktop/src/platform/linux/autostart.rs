@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,15 +25,21 @@ fn service_enabled(config: &Path) -> bool {
         .flatten()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".wants"))
-        .any(|entry| entry.path().join("spentday.service").is_symlink())
+        .any(|entry| entry.path().join("spentday.service").is_file())
 }
 
 fn enabled(config: &Path) -> bool {
     let path = config.join("autostart/day.spent.SpentDay.desktop");
     service_enabled(config)
         || (path.exists()
-            && !std::fs::read_to_string(path)
-                .is_ok_and(|entry| entry.lines().any(|line| line.trim() == "Hidden=true")))
+            && !std::fs::read_to_string(path).is_ok_and(|entry| {
+                entry.lines().any(|line| {
+                    matches!(
+                        line.trim(),
+                        "Hidden=true" | "X-GNOME-Autostart-enabled=false"
+                    )
+                })
+            }))
 }
 
 pub fn set_autostart(on: bool) -> Result<Option<String>, String> {
@@ -53,13 +60,22 @@ pub fn set_autostart(on: bool) -> Result<Option<String>, String> {
         }
     }
     let binary = if on {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Cannot find the running binary: {error}"))?;
+        // Linux keeps the old inode running after a package replaces the executable.
+        let bytes = executable.as_os_str().as_bytes();
+        let executable = PathBuf::from(std::ffi::OsStr::from_bytes(
+            bytes.strip_suffix(b" (deleted)").unwrap_or(bytes),
+        ));
+        let appdir = std::env::var_os("APPDIR")
+            .filter(|path| !path.is_empty())
+            .and_then(|path| std::fs::canonicalize(path).ok());
         Some(
             std::env::var_os("APPIMAGE")
                 .filter(|path| !path.is_empty())
+                .filter(|_| appdir.is_some_and(|dir| executable.starts_with(dir)))
                 .map(PathBuf::from)
-                .map(Ok)
-                .unwrap_or_else(std::env::current_exe)
-                .map_err(|error| format!("Cannot find the running binary: {error}"))?,
+                .unwrap_or(executable),
         )
     } else {
         None
@@ -120,8 +136,10 @@ mod tests {
         let path = config.join("autostart/day.spent.SpentDay.desktop");
         let entry = std::fs::read_to_string(&path).unwrap();
         assert!(entry.contains("Exec=\"/opt/Spent Day/spentday\" --background\n"));
-        std::fs::write(&path, format!("{entry}Hidden=true\n")).unwrap();
-        assert!(!enabled(config));
+        for disabled in ["Hidden=true", "X-GNOME-Autostart-enabled=false"] {
+            std::fs::write(&path, format!("{entry}{disabled}\n")).unwrap();
+            assert!(!enabled(config));
+        }
         set_entry(config, Some(Path::new("/opt/new.AppImage"))).unwrap();
         assert!(enabled(config));
         assert_eq!(
@@ -171,7 +189,10 @@ mod tests {
             .join("systemd/user/graphical-session.target.wants");
         std::fs::create_dir_all(&wants).unwrap();
         let link = wants.join("spentday.service");
-        symlink("/usr/lib/systemd/user/spentday.service", &link).unwrap();
+        let unit = config.path().join("systemd/user/spentday.service");
+        symlink(&unit, &link).unwrap();
+        assert!(!enabled(config.path()));
+        std::fs::write(&unit, "[Service]\nExecStart=/usr/bin/spentday\n").unwrap();
         let entry = config.path().join("autostart/day.spent.SpentDay.desktop");
         std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
         std::fs::write(entry, "Hidden=true\n").unwrap();

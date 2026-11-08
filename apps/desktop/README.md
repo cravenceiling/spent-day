@@ -22,7 +22,11 @@ On Linux x86_64, install the latest release:
 curl -fsSL https://github.com/cravenceiling/spent-day/releases/latest/download/install.sh | sh
 ```
 
-The installer chooses an Arch package, a Debian package, or an AppImage. It enables start at login and starts tracking. Settings > Launch at login turns it off. Set `SPENTDAY_VERSION=v0.1.0` to choose a release, `SPENTDAY_INSTALL=appimage` to choose AppImage, or `SPENTDAY_NO_AUTOSTART=1` to skip start at login. When piping the installer, pass these variables to `sh`.
+The installer chooses an Arch package, a Debian package on glibc 2.39 or later, or an AppImage on other distributions. Without sudo, it uses the AppImage. The AppImage requires glibc 2.35 or later.
+
+The installer enables start at login and starts tracking. On Sway, i3 or Hyprland without an active XDG autostart target, it prints the compositor startup line to add instead. Hyprland under uwsm, including Omarchy, uses the normal autostart entry. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off.
+
+Set `SPENTDAY_VERSION=v0.1.0` or `SPENTDAY_VERSION=0.1.0` to choose a release, `SPENTDAY_INSTALL=appimage` to choose AppImage, or `SPENTDAY_NO_AUTOSTART=1` to skip start at login. When piping the installer, pass these variables to `sh`.
 
 To build from source on Debian 13 or Ubuntu with recent Mesa:
 
@@ -86,7 +90,7 @@ On Plasma 6, enable the packaged KWin script with the same command as `install.s
 kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true
 ```
 
-Then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup. Debian and Arch packages ship these helpers. The one-command installer also runs `--install-helpers` from GNOME or KDE to enable the current user's copy.
+Then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup. Debian and Arch packages ship these helpers system-wide. The one-command installer only enables the packaged copies. Use `--install-helpers` for AppImage and source builds; its user copies shadow packaged helpers.
 
 ### AppImage
 
@@ -130,7 +134,7 @@ Turn on Settings > Launch at login to track at login. Keep the AppImage at the s
 
 The last launch flag wins. Arguments the app does not consume go to Rune, including `--snap`, `--scene`, `--window` and `--tree`.
 
-Closing the dashboard keeps tracking and retains the selected day and drill. Quit Spent Day or Cmd/Ctrl+Q stops the process and flushes the current span. SIGTERM and SIGINT use the same shutdown path. A startup failure opens a fatal window even in background mode; dismissing it exits with code 3. A missing display logs an error and exits with code 1. A missing or unusable Vulkan driver prints installation instructions, attempts a desktop notification and exits with code 4.
+Closing the dashboard keeps tracking and retains the selected day and drill. Quit Spent Day or Cmd/Ctrl+Q stops the process and flushes the current span. SIGTERM and SIGINT use the same shutdown path. A startup failure opens a fatal window even in background mode; dismissing it exits with code 3. A missing display logs an error and exits with code 1. Before a Linux window launch, including one forwarded to a running instance, Spent Day checks for Vulkan adapters without creating a device. If none is available, it prints installation instructions, attempts a desktop notification and exits with code 4. Background tracking skips this check, and headless tools use Rune's own errors.
 
 A second Linux launch forwards its activation token and whether to show the dashboard to the running process. Demo uses a separate instance name. On macOS, reopening the app opens the retained dashboard.
 

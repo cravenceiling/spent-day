@@ -47,7 +47,7 @@ On Linux x86_64:
 curl -fsSL https://github.com/cravenceiling/spent-day/releases/latest/download/install.sh | sh
 ```
 
-The installer chooses a package for the distribution, enables start at login and starts tracking. Settings > Launch at login turns it off. On Hyprland, the autostart entry runs only under uwsm, which Omarchy uses. Otherwise add `exec-once = spentday --background` to `hyprland.conf`.
+The installer chooses a package for the distribution, enables start at login and starts tracking. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off. On Sway, i3 and Hyprland without an active XDG autostart target, the installer prints the compositor startup line to add. Hyprland under uwsm, including Omarchy, uses the normal autostart entry.
 
 To build from source on Debian 13 or Ubuntu with recent Mesa:
 
@@ -83,7 +83,7 @@ Before moving from a source `install.sh` installation to the `.deb`, remove the 
 
 For manual installs, open Spent Day and turn on Settings > Launch at login. The toggle also recognizes and can disable an enabled `spentday.service` user unit. To use that unit instead, run `systemctl --user enable --now spentday` as your desktop user. Choose one startup method. The unit needs the compositor environment described under [Linux sessions](apps/desktop/README.md#linux-sessions).
 
-On GNOME 45+ Wayland, run `gnome-extensions enable spentday@spent.day`, then log out and back in. If GNOME does not see the new extension, log out and back in before enabling it too. On Plasma 6 Wayland, run `kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true`, then log out and back in. AppImage users must first run `./SpentDay-<version>-x86_64.AppImage --install-helpers` from that session. Debian and Arch packages also ship the helpers. The one-command installer runs this flag from GNOME or KDE to enable the current user's copy. After helper updates, log out and back in to reload them.
+On GNOME 45+ Wayland, run `gnome-extensions enable spentday@spent.day`, then log out and back in. If GNOME does not see the new extension, log out and back in before enabling it too. On Plasma 6 Wayland, run `kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true`, then log out and back in. AppImage users must first run `./SpentDay-<version>-x86_64.AppImage --install-helpers` from that session. Debian and Arch packages ship the helpers system-wide. The one-command installer enables those packaged copies and uses `--install-helpers` only for AppImage installs. After helper updates, log out and back in to reload them.
 
 To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds all four downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload all four downloads as workflow artifacts without publishing a release.
 
