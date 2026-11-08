@@ -1,14 +1,15 @@
 use std::process::{Command, ExitCode, Stdio};
 
-pub fn check() -> Result<(), ExitCode> {
+pub fn available() -> bool {
     // A temporary instance probes drivers without creating a device or retaining Rune's cache.
-    let available = {
-        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = wgpu::Backends::VULKAN;
-        let instance = wgpu::Instance::new(descriptor);
-        !pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN)).is_empty()
-    };
-    if available {
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = wgpu::Backends::VULKAN;
+    let instance = wgpu::Instance::new(descriptor);
+    !pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN)).is_empty()
+}
+
+pub fn check() -> Result<(), ExitCode> {
+    if available() {
         return Ok(());
     }
     let release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
@@ -16,19 +17,18 @@ pub fn check() -> Result<(), ExitCode> {
         "Spent Day cannot render because no Vulkan GPU adapter is available.\n{}",
         driver_help(&release)
     );
-    eprintln!("spentday: {message}");
+    notify("Spent Day cannot open the dashboard", &message);
+    Err(ExitCode::from(4))
+}
+
+pub fn notify(title: &str, body: &str) {
+    eprintln!("spentday: {title}\n{body}");
     let _ = Command::new("notify-send")
-        .args([
-            "--app-name=Spent Day",
-            "--urgency=critical",
-            "Spent Day cannot open the dashboard",
-            &message,
-        ])
+        .args(["--app-name=Spent Day", "--urgency=critical", title, body])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
-    Err(ExitCode::from(4))
 }
 
 fn driver_help(release: &str) -> &'static str {

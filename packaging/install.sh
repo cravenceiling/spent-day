@@ -26,10 +26,19 @@ if [ "${SPENTDAY_INSTALL:-}" != appimage ]; then
             fi ;;
     esac
 fi
-if [ "$format" != AppImage ] && ! command -v sudo >/dev/null 2>&1; then
-    echo 'sudo is unavailable; installing the AppImage for the current user.'
-    format=AppImage
+if [ "$format" != AppImage ]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo 'sudo is unavailable; installing the AppImage for the current user.'
+        format=AppImage
+    elif ! sudo -v </dev/null; then
+        echo 'sudo authorization failed; installing the AppImage for the current user.'
+        format=AppImage
+    fi
 fi
+bin=/usr/bin/spentday
+if [ "$format" = AppImage ]; then bin="$HOME/.local/bin/spentday"; fi
+was_installed=false
+if [ -e "$bin" ]; then was_installed=true; fi
 tmp=$(mktemp -d)
 chmod 755 "$tmp"
 trap 'rm -rf "$tmp"' 0
@@ -91,7 +100,10 @@ if [ "$has_icd" = false ]; then
                     *) driver="${driver:+$driver }$package" ;;
                 esac
             done
-            driver=${driver:-vulkan-swrast}
+            case "$driver" in
+                '') driver=vulkan-swrast ;;
+                vulkan-nouveau) driver="$driver vulkan-swrast" ;;
+            esac
             echo "No Vulkan driver found. Install with: sudo pacman -S $driver" ;;
         *' debian '*|*' ubuntu '*)
             driver=mesa-vulkan-drivers
@@ -100,7 +112,6 @@ if [ "$has_icd" = false ]; then
         *) echo "No Vulkan driver found. Install your GPU's Vulkan driver." ;;
     esac
 fi
-bin=/usr/bin/spentday
 case "$format" in
     pkg.tar.zst)
         if [ -n "$driver" ]; then
@@ -112,14 +123,14 @@ case "$format" in
         fi
         sudo pacman -U --needed --noconfirm "$tmp/$asset" </dev/null ;;
     deb)
-        sudo apt-get update </dev/null
+        sudo apt-get update </dev/null \
+            || echo 'apt-get update failed; continuing with cached package lists.'
         if [ -n "$driver" ]; then
             sudo apt-get install -y "$tmp/$asset" "$driver" </dev/null
         else
             sudo apt-get install -y "$tmp/$asset" </dev/null
         fi ;;
     AppImage)
-        bin="$HOME/.local/bin/spentday"
         case "$bin" in
             *[%\$\"\'\\\`]*|*[[:cntrl:]]*) fail 'The install path cannot contain %, $, quotes, backslashes, backticks or control characters.' ;;
         esac
@@ -145,7 +156,7 @@ DESKTOP
         esac ;;
 esac
 desktop=$(printf '%s' "${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')
-if [ "${SPENTDAY_NO_AUTOSTART:-}" != 1 ]; then
+if [ "$was_installed" = false ] && [ "${SPENTDAY_NO_AUTOSTART:-}" != 1 ]; then
     manual=false
     case "$desktop" in
         *hyprland*|*sway*|*i3*)
@@ -156,9 +167,9 @@ if [ "${SPENTDAY_NO_AUTOSTART:-}" != 1 ]; then
     esac
     if [ "$manual" = true ]; then
         case "$desktop" in
-            *hyprland*) echo 'To start at login, add to ~/.config/hypr/autostart.conf or hyprland.conf: exec-once = spentday --background' ;;
-            *sway*) echo 'To start at login, add to ~/.config/sway/config: exec spentday --background' ;;
-            *i3*) echo 'To start at login, add to ~/.config/i3/config: exec spentday --background' ;;
+            *hyprland*) printf 'To start at login, add to ~/.config/hypr/autostart.conf or hyprland.conf: exec-once = "%s" --background\n' "$bin" ;;
+            *sway*) printf 'To start at login, add to ~/.config/sway/config: exec "%s" --background\n' "$bin" ;;
+            *i3*) printf 'To start at login, add to ~/.config/i3/config: exec "%s" --background\n' "$bin" ;;
         esac
     else
         "$bin" --enable-autostart </dev/null || fail 'Launch at login could not be enabled. Open Settings > Launch at login after fixing the error above.'
@@ -173,27 +184,54 @@ case "$desktop" in
         else
             case "$desktop" in
                 *gnome*)
-                    gnome-extensions enable spentday@spent.day </dev/null \
+                    gnome-extensions enable spentday@spent.day </dev/null >/dev/null 2>&1 \
                         || echo 'Log out and back in, then run: gnome-extensions enable spentday@spent.day' ;;
                 *kde*)
-                    kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true </dev/null \
+                    kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true </dev/null >/dev/null 2>&1 \
                         || echo 'Could not enable the KWin script. Run: kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true'
-                    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript spentday-focus </dev/null \
+                    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript spentday-focus </dev/null >/dev/null 2>&1 \
                         || echo 'Could not unload the previous KWin script. Log out and back in to reload it.'
-                    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start </dev/null \
+                    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start </dev/null >/dev/null 2>&1 \
                         || echo 'Log out and back in to start the KWin script.' ;;
             esac
         fi ;;
 esac
-if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
-    if command -v pkill >/dev/null 2>&1; then
-        pkill -x -u "$(id -u)" spentday || true
-        for _ in 1 2 3 4 5; do
-            if ! pgrep -x -u "$(id -u)" spentday >/dev/null; then break; fi
-            sleep 1
-        done
+dbus_call() {
+    if command -v busctl >/dev/null 2>&1; then
+        busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus "$1" s day.spent.SpentDay </dev/null
+    else
+        gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+            --method "org.freedesktop.DBus.$1" day.spent.SpentDay </dev/null
     fi
-    nohup "$bin" --background </dev/null >/dev/null 2>&1 &
+}
+running() {
+    dbus_call NameHasOwner 2>/dev/null | grep -q 'true'
+}
+if [ -n "${SSH_CONNECTION:-}" ]; then
+    if running; then
+        echo 'Restart Spent Day from your desktop session to use the new version.'
+    else
+        echo 'No desktop session found. Open Spent Day after logging in.'
+    fi
+elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    if systemctl --user is-active --quiet spentday.service </dev/null 2>/dev/null; then
+        systemctl --user restart spentday.service </dev/null
+    elif dbus_call NameHasOwner >/dev/null 2>&1; then
+        if running; then
+            pid=$(dbus_call GetConnectionUnixProcessID | sed -n 's/^u \([0-9][0-9]*\)$/\1/p; s/^(uint32 \([0-9][0-9]*\),)$/\1/p')
+            [ -n "$pid" ] || fail 'Could not find the running Spent Day process. Restart it from your desktop session.'
+            kill -TERM "$pid"
+            attempts=0
+            while running; do
+                [ "$attempts" -lt 15 ] || fail 'Spent Day is still stopping. Restart it from your desktop session.'
+                sleep 1
+                attempts=$((attempts + 1))
+            done
+        fi
+        nohup "$bin" --background </dev/null >/dev/null 2>&1 &
+    else
+        echo 'Could not query the desktop session bus. Open Spent Day from your desktop session.'
+    fi
 else
     echo 'No desktop session found. Open Spent Day after logging in.'
 fi
