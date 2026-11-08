@@ -4,6 +4,8 @@ mod day;
 mod demo;
 mod format;
 #[cfg(target_os = "linux")]
+mod gpu;
+#[cfg(target_os = "linux")]
 mod helpers;
 mod icons;
 mod jobs;
@@ -55,6 +57,19 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("Could not install desktop helpers: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|arg| arg == "--enable-autostart") {
+        return match platform::set_autostart(true) {
+            Ok(_) => {
+                println!("Spent Day will start at login. Settings > Launch at login turns it off.");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
                 ExitCode::FAILURE
             }
         };

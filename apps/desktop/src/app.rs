@@ -210,6 +210,16 @@ pub fn run(opts: Opts) -> ExitCode {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    if !opts
+        .rune
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--list-scenes" | "--list-windows" | "--html"))
+        && let Err(code) = crate::gpu::check()
+    {
+        return code;
+    }
+
     let (store, core, startup_error): (Arc<dyn Store>, _, _) = if demo {
         (Arc::new(Demo::new()), None, None)
     } else {

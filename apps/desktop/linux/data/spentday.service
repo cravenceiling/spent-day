@@ -12,9 +12,8 @@ StartLimitBurst=3
 ExecStart=%h/.local/bin/spentday --background
 Restart=on-failure
 RestartSec=5
-# Status 3 means the user closed a "Cannot Open the Database" or "Cannot Track Apps" dialog.
-# A restart would only show it again.
-RestartPreventExitStatus=3
+# Database, tracking and Vulkan driver failures need user action before restarting.
+RestartPreventExitStatus=3 4
 # Only settings a user manager can apply without a namespace. PrivateTmp= would hide the X11
 # socket in /tmp. ProtectSystem= needs a mount namespace, and Spent Day writes its database,
 # settings and caches under the home directory.
