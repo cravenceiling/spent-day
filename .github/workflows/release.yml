@@ -123,13 +123,13 @@ jobs:
           done
       - name: Remove release identity
         if: always()
+        timeout-minutes: 2
         shell: bash
+        # The trust setting stays: removing it waits on an authorization prompt no one can answer,
+        # and the hosted runner VM is discarded after the job anyway.
         run: |
           if [ -f "$RUNNER_TEMP/spentday-release.keychain-db" ]; then
             security delete-keychain "$RUNNER_TEMP/spentday-release.keychain-db"
-          fi
-          if [ -f "$RUNNER_TEMP/spentday-release.pem" ]; then
-            sudo security remove-trusted-cert -d "$RUNNER_TEMP/spentday-release.pem" || true
           fi
           rm -f "$RUNNER_TEMP/spentday-release.p12" "$RUNNER_TEMP/spentday-release.pem"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
