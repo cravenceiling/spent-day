@@ -47,7 +47,7 @@ On Linux x86_64:
 curl -fsSL https://github.com/cravenceiling/spent-day/releases/latest/download/install.sh | sh
 ```
 
-The installer chooses a package for the distribution, enables start at login and starts tracking. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off. On Sway, i3 and Hyprland without an active XDG autostart target, the installer prints the compositor startup line to add. Hyprland under uwsm, including Omarchy, uses the normal autostart entry.
+The installer chooses a package for the distribution, enables start at login and starts tracking. If no Vulkan driver is installed, it asks before adding one. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off. On Sway, i3 and Hyprland without an active XDG autostart target, the installer prints the compositor startup line to add. Hyprland under uwsm, including Omarchy, uses the normal autostart entry.
 
 To build from source on Debian 13 or Ubuntu with recent Mesa:
 

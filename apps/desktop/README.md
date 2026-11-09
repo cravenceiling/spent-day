@@ -24,9 +24,11 @@ curl -fsSL https://github.com/cravenceiling/spent-day/releases/latest/download/i
 
 The installer chooses an Arch package, a Debian package on glibc 2.39 or later, or an AppImage on other distributions. Without sudo, it uses the AppImage. The AppImage requires glibc 2.35 or later.
 
+Spent Day draws its window with Vulkan. When no Vulkan driver is installed, the installer names the package it would add on Arch, Debian or Ubuntu and asks before installing it. Without a terminal to ask on, it skips the driver and prints the install command. Tracking runs without a driver, but the dashboard does not open.
+
 The installer enables start at login and starts tracking. On Sway, i3 or Hyprland without an active XDG autostart target, it prints the compositor startup line to add instead. Hyprland under uwsm, including Omarchy, uses the normal autostart entry. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off.
 
-Set `SPENTDAY_VERSION=v0.1.0` or `SPENTDAY_VERSION=0.1.0` to choose a release, `SPENTDAY_INSTALL=appimage` to choose AppImage, or `SPENTDAY_NO_AUTOSTART=1` to skip start at login. When piping the installer, pass these variables to `sh`.
+Set `SPENTDAY_VERSION=v0.1.0` or `SPENTDAY_VERSION=0.1.0` to choose a release, `SPENTDAY_INSTALL=appimage` to choose AppImage, `SPENTDAY_NO_AUTOSTART=1` to skip start at login, or `SPENTDAY_INSTALL_DRIVER=1` to install a missing Vulkan driver without asking. When piping the installer, pass these variables to `sh`.
 
 To build from source on Debian 13 or Ubuntu with recent Mesa:
 

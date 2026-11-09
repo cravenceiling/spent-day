@@ -109,12 +109,29 @@ if [ "$has_icd" = false ]; then
                 '') driver=vulkan-swrast ;;
                 vulkan-nouveau) driver="$driver vulkan-swrast" ;;
             esac
-            echo "No Vulkan driver found. Install with: sudo pacman -S $driver" ;;
+            driver_cmd="sudo pacman -S $driver" ;;
         *' debian '*|*' ubuntu '*)
             driver=mesa-vulkan-drivers
-            echo 'No Vulkan driver found. Install with: sudo apt-get install mesa-vulkan-drivers' ;;
-        *' fedora '*) echo 'No Vulkan driver found. Run: sudo dnf install mesa-vulkan-drivers' ;;
-        *) echo "No Vulkan driver found. Install your GPU's Vulkan driver." ;;
+            driver_cmd="sudo apt-get install $driver" ;;
+        *' fedora '*) driver_cmd='sudo dnf install mesa-vulkan-drivers' ;;
+        *) driver_cmd="your GPU's Vulkan driver" ;;
+    esac
+    echo 'No Vulkan driver found. Spent Day tracks without one, but needs one to open its window.'
+    answer=n
+    if [ -n "$driver" ] && [ "$format" != AppImage ]; then
+        if [ "${SPENTDAY_INSTALL_DRIVER:-}" = 1 ]; then
+            answer=y
+        elif (: </dev/tty) 2>/dev/null; then
+            # curl | sh feeds this script on stdin, so the answer has to come from the terminal.
+            printf 'Install %s now? [Y/n] ' "$driver" >/dev/tty
+            read -r answer </dev/tty || answer=n
+            answer=${answer:-y}
+        fi
+    fi
+    case "$answer" in
+        [Yy]*) ;;
+        *) driver=
+           echo "Install it later with: $driver_cmd" ;;
     esac
 fi
 case "$format" in
@@ -130,10 +147,11 @@ case "$format" in
     deb)
         sudo apt-get update </dev/null \
             || echo 'apt-get update failed; continuing with cached package lists.'
+        # The package and libvulkan1 recommend a Vulkan driver; only the answer above may add one.
         if [ -n "$driver" ]; then
-            sudo apt-get install -y "$tmp/$asset" "$driver" </dev/null
+            sudo apt-get install -y --no-install-recommends "$tmp/$asset" "$driver" </dev/null
         else
-            sudo apt-get install -y "$tmp/$asset" </dev/null
+            sudo apt-get install -y --no-install-recommends "$tmp/$asset" </dev/null
         fi ;;
     AppImage)
         case "$bin" in
