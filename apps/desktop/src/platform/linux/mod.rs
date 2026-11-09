@@ -1,3 +1,4 @@
+mod autostart;
 mod collector;
 mod dbus;
 mod desktop;
@@ -9,6 +10,7 @@ mod session;
 mod tracker;
 
 use super::{OnFatal, Pref};
+pub use autostart::{autostart, set_autostart};
 pub use instance::{InstanceGuard, claim_instance};
 pub use paths::db_path;
 use spentday_core::SpentDay;
@@ -64,13 +66,5 @@ pub fn read_pref(_pref: Pref) -> Option<bool> {
 }
 
 pub fn write_pref(_pref: Pref, _on: bool) {}
-
-pub fn autostart() -> Option<bool> {
-    None
-}
-
-pub fn set_autostart(_on: bool) -> Result<Option<String>, String> {
-    Err("Linux starts Spent Day through its autostart entry or systemd unit".into())
-}
 
 pub fn install_quit_handler(_quit: Box<dyn Fn()>) {}

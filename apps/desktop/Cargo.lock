@@ -3641,6 +3641,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-io-kit",
  "objc2-service-management",
+ "pollster",
  "rune",
  "rune-kit",
  "serde",
@@ -3650,6 +3651,7 @@ dependencies = [
  "tempfile",
  "wayland-client",
  "wayland-protocols",
+ "wgpu",
  "x11rb",
  "zbus 5.19.0",
 ]

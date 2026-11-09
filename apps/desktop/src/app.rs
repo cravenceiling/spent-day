@@ -63,6 +63,11 @@ static PANEL: std::sync::LazyLock<Mutex<platform::status_item::PanelState>> =
 static FAILED: AtomicBool = AtomicBool::new(false);
 
 pub fn show_fatal(shared: &Shared, fatal: Fatal) {
+    #[cfg(target_os = "linux")]
+    if !crate::gpu::available() {
+        crate::gpu::notify(&fatal.title, &fatal.body);
+        std::process::exit(3);
+    }
     FAILED.store(true, Ordering::Release);
     if let Some(ui) = shared.ui.get() {
         ui.dash.close();
@@ -193,6 +198,10 @@ pub fn run(opts: Opts) -> ExitCode {
             Launch::Dashboard | Launch::Settings => true,
             Launch::Default => cfg!(target_os = "linux") || onboarding == Some(false),
         };
+        #[cfg(target_os = "linux")]
+        if show && let Err(code) = crate::gpu::check() {
+            return code;
+        }
         let (activate, fatal) = (dash.clone(), fatal.clone());
         let on_activate = Box::new(move |show: bool, token: String| {
             if show {

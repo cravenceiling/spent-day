@@ -16,7 +16,21 @@ apps/desktop/macos/install.sh
 
 `bundle.sh` builds `apps/desktop/macos/build/Spent Day.app`. `install.sh` copies it to `/Applications` and opens it. The scripts target arm64; Intel Macs are not supported yet.
 
-On Debian 13 or Ubuntu with recent Mesa:
+On Linux x86_64, install the latest release:
+
+```sh
+curl -fsSL https://github.com/cravenceiling/spent-day/releases/latest/download/install.sh | sh
+```
+
+The installer chooses an Arch package, a Debian package on glibc 2.39 or later, or an AppImage on other distributions. Without sudo, it uses the AppImage. The AppImage requires glibc 2.35 or later.
+
+Spent Day draws its window with Vulkan. When no Vulkan driver is installed, the installer names the package it would add on Arch, Debian or Ubuntu and asks before installing it. Without a terminal to ask on, it skips the driver and prints the install command. Tracking runs without a driver, but the dashboard does not open.
+
+The installer enables start at login and starts tracking. On Sway, i3 or Hyprland without an active XDG autostart target, it prints the compositor startup line to add instead. Hyprland under uwsm, including Omarchy, uses the normal autostart entry. Settings > Launch at login turns off the XDG autostart entry. Remove a manually added compositor startup line from its config to turn that off.
+
+Set `SPENTDAY_VERSION=v0.1.0` or `SPENTDAY_VERSION=0.1.0` to choose a release, `SPENTDAY_INSTALL=appimage` to choose AppImage, `SPENTDAY_NO_AUTOSTART=1` to skip start at login, or `SPENTDAY_INSTALL_DRIVER=1` to install a missing Vulkan driver without asking. When piping the installer, pass these variables to `sh`.
+
+To build from source on Debian 13 or Ubuntu with recent Mesa:
 
 ```sh
 sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcursor1 libxi6 mesa-vulkan-drivers libvulkan1
@@ -39,7 +53,7 @@ cargo build --locked
 
 ## Linux release downloads
 
-Download an x86_64 artifact from [Releases](https://github.com/cravenceiling/spent-day/releases).
+For manual installation, download an x86_64 artifact from [Releases](https://github.com/cravenceiling/spent-day/releases).
 
 | Artifact | Build base and glibc floor | Install or launch |
 |---|---|---|
@@ -68,7 +82,7 @@ systemctl --user daemon-reload
 
 Keep `~/.local/share/spentday`, which holds your data. Install the `.deb` after removing the old files.
 
-Start the app with `spentday`. The `.deb` does not start tracking at login by itself. Run `systemctl --user enable --now spentday` as your desktop user to start tracking now and at login. The unit needs the environment described under [Linux sessions](#linux-sessions). As an alternative, add `/usr/bin/spentday --background` to your desktop's startup applications. Choose one startup method.
+Start the app with `spentday`. For manual installs, turn on Settings > Launch at login. The toggle also recognizes an enabled `spentday.service` user unit and disables it when turned off. To use that unit instead of a desktop entry, run `systemctl --user enable --now spentday` as your desktop user. The unit needs the environment described under [Linux sessions](#linux-sessions).
 
 On GNOME 45+, enable the packaged system-wide extension with `gnome-extensions enable spentday@spent.day`, then log out and back in. If GNOME does not see the newly installed extension yet, log out and back in before running the command too.
 
@@ -78,7 +92,7 @@ On Plasma 6, enable the packaged KWin script with the same command as `install.s
 kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true
 ```
 
-Then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup. Use the packaged helpers with Debian and Arch packages. `--install-helpers` is for AppImage and source builds; its user copies shadow packaged helpers.
+Then log out and back in. Repeat the logout after helper updates. The Arch package uses the same helper setup. Debian and Arch packages ship these helpers system-wide. The one-command installer only enables the packaged copies. Use `--install-helpers` for AppImage and source builds; its user copies shadow packaged helpers.
 
 ### AppImage
 
@@ -106,7 +120,7 @@ From a GNOME 45+ or Plasma 6 Wayland session, install and enable the focus helpe
 
 `spentday --install-helpers` also works with a source-built binary. It writes the GNOME extension to `$XDG_DATA_HOME/gnome-shell/extensions/spentday@spent.day` or installs the KWin package at `$XDG_DATA_HOME/kwin/scripts/spentday-focus`, using `~/.local/share` when `XDG_DATA_HOME` is unset. GNOME uses `gnome-extensions enable`; KDE needs `kpackagetool6`, `kwriteconfig6` and `qdbus6`, as with `linux/install.sh`. It enables the KWin script, unloads the previous copy and starts it again. Follow any printed logout instructions. Helper updates may need a logout and login.
 
-The AppImage does not register an autostart entry or systemd service. To track at login, add its absolute path followed by `--background` to the desktop's startup applications or compositor config.
+Turn on Settings > Launch at login to track at login. Keep the AppImage at the same absolute path after enabling it.
 
 ## Launch and quit
 
@@ -122,7 +136,7 @@ The AppImage does not register an autostart entry or systemd service. To track a
 
 The last launch flag wins. Arguments the app does not consume go to Rune, including `--snap`, `--scene`, `--window` and `--tree`.
 
-Closing the dashboard keeps tracking and retains the selected day and drill. Quit Spent Day or Cmd/Ctrl+Q stops the process and flushes the current span. SIGTERM and SIGINT use the same shutdown path. A startup failure opens a fatal window even in background mode; dismissing it exits with code 3. A missing display logs an error and exits with code 1.
+Closing the dashboard keeps tracking and retains the selected day and drill. Quit Spent Day or Cmd/Ctrl+Q stops the process and flushes the current span. SIGTERM and SIGINT use the same shutdown path. A startup failure opens a fatal window even in background mode; dismissing it exits with code 3. A missing display logs an error and exits with code 1. Before a Linux window launch, including one forwarded to a running instance, Spent Day checks for Vulkan adapters without creating a device. If none is available, it prints installation instructions, attempts a desktop notification and exits with code 4. Background tracking skips this check, and headless tools use Rune's own errors.
 
 A second Linux launch forwards its activation token and whether to show the dashboard to the running process. Demo uses a separate instance name. On macOS, reopening the app opens the retained dashboard.
 
@@ -164,7 +178,7 @@ Sway and Hyprland replies include window titles. The collector parses them in me
 
 After 180 seconds without input, away time starts at the last input. Idle inhibitors or media in the focused app keep the user present. Checks run every 5 seconds on a worker, with a 2-second deadline per round. A positive check lasts 30 seconds; failed or missing checks do not renew it. Music in another app does not count. Sleep and lock close the open span. Without an idle source, time away from the keyboard counts as focused-app time and the app logs a warning. `SPENTDAY_AWAY_AFTER_SECS` shortens the threshold for tests; `SPENTDAY_COLLECTOR` selects `x11`, `sway`, `hyprland`, `gnome` or `kde`.
 
-The systemd user service needs `DISPLAY` or `WAYLAND_DISPLAY` in the user manager environment and `graphical-session.target`. GNOME and KDE provide these. Sway and Hyprland need configuration and do not run autostart entries themselves. A compositor startup line is often simpler:
+The systemd user service needs `DISPLAY` or `WAYLAND_DISPLAY` in the user manager environment and `graphical-session.target`. GNOME and KDE provide these. Sway needs configuration to run autostart entries. Hyprland runs them only under uwsm, which Omarchy uses. Without uwsm, add `exec-once = spentday --background` to `hyprland.conf`. A compositor startup line is often simpler:
 
 ```text
 # Sway
