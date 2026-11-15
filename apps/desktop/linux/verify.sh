@@ -53,6 +53,56 @@ step "integration tests against the session bus and the X server"
 # They share one session bus, so one test's players must not show up in another's checks.
 (cd "$here/.." && cargo test --quiet --locked -- --ignored --test-threads=1) || fail "integration tests"
 
+step "system tray: background launch exports its symbolic icon and quits through dbusmenu"
+install -d -m 700 /tmp/tray-runtime
+XDG_RUNTIME_DIR=/tmp/tray-runtime "$spentday" --demo --background >/tmp/tray.log 2>&1 &
+tray_pid=$!
+tray_name=
+for _ in $(seq 50); do
+  tray_name=$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.ListNames | grep -o "org.kde.StatusNotifierItem-$tray_pid-[0-9]*" || true)
+  [ -n "$tray_name" ] && break
+  sleep 0.2
+done
+[ -n "$tray_name" ] || { cat /tmp/tray.log; fail "no SNI bus name for $tray_pid"; }
+tray_property() {
+  gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
+    --method org.freedesktop.DBus.Properties.Get org.kde.StatusNotifierItem "$1"
+}
+icon_name=$(tray_property IconName)
+icon_path=$(tray_property IconThemePath)
+echo "$tray_name: $icon_name $icon_path"
+[ "$icon_name" = "(<'spentday-symbolic'>,)" ] || fail "wrong tray IconName"
+[ "$icon_path" = "(<'/tmp/tray-runtime/spentday/icons'>,)" ] || fail "wrong tray IconThemePath"
+[ -s /tmp/tray-runtime/spentday/icons/hicolor/scalable/apps/spentday-symbolic.svg ] || fail "missing symbolic icon"
+[ "$(tray_property Id)" = "(<'day.spent.SpentDay.Demo'>,)" ] || fail "wrong demo tray id"
+gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
+  --method org.kde.StatusNotifierItem.Activate 0 0
+tray_window=$(timeout 15 xdotool search --sync --onlyvisible --pid "$tray_pid" | head -1) || fail "tray Activate did not open the dashboard"
+gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
+  --method org.kde.StatusNotifierItem.Activate 0 0
+sleep 1
+[ "$(xdotool search --onlyvisible --pid "$tray_pid")" = "$tray_window" ] || fail "repeated tray Activate closed or replaced the dashboard"
+menu=$(gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.GetGroupProperties '[]' "['label']")
+echo "$menu"
+quit_item=$(printf '%s\n' "$menu" | sed -n "s/.*(\([0-9][0-9]*\), {'label': <'Quit Spent Day'>}).*/\1/p")
+[ -n "$quit_item" ] || fail "no Quit Spent Day menu item"
+gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.Event "$quit_item" clicked '<0>' 0 || true # the app may exit before replying
+for _ in $(seq 50); do
+  kill -0 "$tray_pid" 2>/dev/null || break
+  sleep 0.2
+done
+if kill -0 "$tray_pid" 2>/dev/null; then
+  kill -TERM "$tray_pid"
+  wait "$tray_pid" || true
+  fail "tray Quit did not exit within 10 s"
+fi
+status=0; wait "$tray_pid" || status=$?
+cat /tmp/tray.log
+[ "$status" = 0 ] || fail "tray Quit exited with status $status"
+
 # Starts `spentday --background` on database $1 and waits until it tracks.
 start_spentday() {
   rm -f "$1" "$1"-wal "$1"-shm

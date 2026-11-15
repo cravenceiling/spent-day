@@ -188,6 +188,17 @@ pub fn run(opts: Opts) -> ExitCode {
     let dash = handles.dash.clone();
     let fatal = handles.fatal.clone();
 
+    // After a startup failure the store is the demo; only the fatal window opens.
+    let open_window: Arc<dyn Fn(String) + Send + Sync> = {
+        let (dash, fatal) = (dash.clone(), fatal.clone());
+        Arc::new(move |token| {
+            if FAILED.load(Ordering::Acquire) {
+                fatal.activate(token);
+            } else {
+                dash.activate(token);
+            }
+        })
+    };
     let mut onboarding = None;
     let mut show = false;
     let mut _instance = None;
@@ -202,16 +213,14 @@ pub fn run(opts: Opts) -> ExitCode {
         if show && let Err(code) = crate::gpu::check() {
             return code;
         }
-        let (activate, fatal) = (dash.clone(), fatal.clone());
-        let on_activate = Box::new(move |show: bool, token: String| {
-            if show {
-                if FAILED.load(Ordering::Acquire) {
-                    fatal.activate(token);
-                } else {
-                    activate.activate(token);
+        let on_activate = {
+            let open = open_window.clone();
+            Box::new(move |show: bool, token: String| {
+                if show {
+                    open(token);
                 }
-            }
-        });
+            })
+        };
         match platform::claim_instance(demo, show, on_activate) {
             #[cfg(target_os = "linux")]
             Instance::Forwarded => return ExitCode::SUCCESS,
@@ -303,11 +312,40 @@ pub fn run(opts: Opts) -> ExitCode {
                 dash.open();
             }
         }
+        #[cfg(target_os = "linux")]
+        {
+            let (settings, quit) = (dash.clone(), dash.clone());
+            platform::tray(
+                demo,
+                platform::TrayCallbacks {
+                    // A forwarded launch checks for Vulkan in its own process; a tray click has
+                    // no such process, so it checks here and notifies instead of failing silently.
+                    open: Box::new(move |token| {
+                        if crate::gpu::check().is_ok() {
+                            open_window(token);
+                        }
+                    }),
+                    settings: Box::new(move |token| {
+                        if crate::gpu::check().is_err() {
+                            return;
+                        }
+                        settings.update(move |d, tx| {
+                            if !FAILED.load(Ordering::Acquire) {
+                                settings::open(d, tx);
+                                d.shared.ui.get().unwrap().dash.activate(token);
+                            }
+                        });
+                    }),
+                    settings_available: Box::new(|| !FAILED.load(Ordering::Acquire)),
+                    quit: Box::new(move || quit.quit()),
+                },
+            );
+        }
     }
 
     #[cfg(target_os = "macos")]
     let panel_options = platform::status_item::panel_options(panel::SIZE);
-    // Linux has no status item; the panel exists for headless scenes only.
+    // The Linux tray opens the dashboard; the panel exists for headless scenes only.
     #[cfg(target_os = "linux")]
     let panel_options = rune::WindowOptions {
         visible: false,

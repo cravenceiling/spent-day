@@ -126,8 +126,8 @@ Turn on Settings > Launch at login to track at login. Keep the AppImage at the s
 
 | Argument | Effect |
 |---|---|
-| No launch flag | macOS stays in the menu bar, except for first-launch onboarding. Linux opens the dashboard. |
-| `--background`, `-b` | Track without opening the dashboard. |
+| No launch flag | macOS stays in the menu bar, except for first-launch onboarding. Linux opens the dashboard and adds a system tray icon. |
+| `--background`, `-b` | Track without opening the dashboard. Keep the macOS menu bar item or Linux system tray icon available. |
 | `--dashboard` | Open the dashboard. |
 | `--settings` | Open the dashboard with its Settings overlay. |
 | `--day YYYY-MM-DD` | Select a local date. A missing or invalid date falls back to today. |
@@ -137,6 +137,8 @@ Turn on Settings > Launch at login to track at login. Keep the AppImage at the s
 The last launch flag wins. Arguments the app does not consume go to Rune, including `--snap`, `--scene`, `--window` and `--tree`.
 
 Closing the dashboard keeps tracking and retains the selected day and drill. Quit Spent Day or Cmd/Ctrl+Q stops the process and flushes the current span. SIGTERM and SIGINT use the same shutdown path. A startup failure opens a fatal window even in background mode; dismissing it exits with code 3. A missing display logs an error and exits with code 1. Before a Linux window launch, including one forwarded to a running instance, Spent Day checks for Vulkan adapters without creating a device. If none is available, it prints installation instructions, attempts a desktop notification and exits with code 4. Background tracking skips this check, and headless tools use Rune's own errors.
+
+On Linux, click the hourglass tray icon to open or raise the dashboard. Its menu offers Open Spent Day, Settings and Quit Spent Day. After a startup failure, Open shows the fatal window and Settings is disabled. Quit uses the same shutdown path as SIGTERM.
 
 A second Linux launch forwards its activation token and whether to show the dashboard to the running process. Demo uses a separate instance name. On macOS, reopening the app opens the retained dashboard.
 
@@ -165,6 +167,10 @@ Chrome, Brave, Helium, Edge, Vivaldi and Opera use the front window's incognito 
 The extension listener binds only `127.0.0.1:7853`. It receives origins, never paths or titles. A private or non-web tab sends no page and ends the prior site's time. Another local program can send reports too; see [Privacy](../../docs/PRIVACY.md).
 
 ## Linux sessions
+
+The system tray uses StatusNotifierItem and dbusmenu. It appears in Waybar's `tray` module on Omarchy and other Hyprland setups, and in KDE Plasma's system tray. GNOME needs the AppIndicator extension, which Ubuntu ships. The symbolic hourglass follows Waybar's foreground colour.
+
+Without a tray host, Spent Day logs a line each time the host goes away and keeps tracking. The icon registers when a host starts or restarts, including Waybar. Use `spentday --dashboard` to open a background instance without a tray host. The app writes its embedded icon on every start under `$XDG_RUNTIME_DIR/spentday/icons/hicolor/scalable/apps/spentday-symbolic.svg`. Without `XDG_RUNTIME_DIR`, it uses an `icons` folder beside the database.
 
 | Session | App in front | Idle source |
 |---|---|---|
