@@ -2,6 +2,14 @@
 
 A Jetpack Compose app on top of the Rust core. It runs on Android 8 or later.
 
+## Release download
+
+Download `SpentDay-<version>.apk` from [Releases](https://github.com/cravenceiling/spent-day/releases). Open it on your phone and allow installing apps from your browser when prompted. Or install it with adb:
+
+```sh
+adb install -r SpentDay-<version>.apk
+```
+
 ## Build
 
 You need:
@@ -43,6 +51,35 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 Keep the same key for every update. Android refuses an update signed with a different key. For the same reason a release build won't install over a debug build. Uninstall the debug build first, which deletes its data.
 
 For development, `./gradlew assembleDebug` builds `app-debug.apk`. Don't use it for real data. A debug build lets anyone with adb read its database, sync code included.
+
+## Release workflow signing
+
+Use the same key for every release and keep a private backup. Create it with the `keytool` command above. From the directory containing `spentday-release.jks`, encode it outside the repo:
+
+```sh
+umask 077
+base64 -w0 spentday-release.jks > spentday-release.base64       # Linux
+base64 -i spentday-release.jks > spentday-release.base64        # macOS
+```
+
+Run the command for your OS, then set the repository secrets:
+
+```sh
+gh secret set ANDROID_KEYSTORE_BASE64 < spentday-release.base64
+gh secret set SPENTDAY_KEYSTORE_PASSWORD
+rm spentday-release.base64
+```
+
+`gh secret set SPENTDAY_KEYSTORE_PASSWORD` prompts for the keystore password. If the alias is not `spentday` or the key password differs, set the optional secrets too:
+
+```sh
+gh secret set SPENTDAY_KEY_ALIAS
+gh secret set SPENTDAY_KEY_PASSWORD
+```
+
+Tag and manual Release workflow runs require the signing secrets, and the release waits for the Android job, so a missing secret blocks the whole release. Pull requests build a debug APK and run the unit tests without the release key. The job verifies the APK's signature before uploading it and deletes the temporary keystore even if the build fails.
+
+The workflow takes `versionName` from the shared release version and sets `versionCode` to `major * 10000 + minor * 100 + patch`. Use a higher version for every release, with minor and patch below 100 and a version code between 1 and 2100000000. Prerelease suffixes are rejected. Local builds still default to version name `0.1.0` and code `1`. A local release build therefore can't replace an installed release download, because Android refuses the lower code. Pass `-PspentdayVersionName` and `-PspentdayVersionCode` with a higher version to install over it.
 
 ## Permissions
 

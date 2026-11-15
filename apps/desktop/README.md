@@ -205,7 +205,7 @@ Run `scripts/make-release-cert.sh` once. It writes a ten-year `Spent Day Release
 
 Tag and manual release builds import the identity into a temporary keychain and trust it for code signing. After the build they delete the keychain; the trust setting goes with the runner VM. Without secrets they sign ad hoc and warn. Pull request builds always sign ad hoc and never import secrets. The app is not notarized. After every download, including updates, allow the blocked launch in System Settings > Privacy & Security > Open Anyway.
 
-A manual Release workflow run uploads the DMG, Arch package, `.deb` and AppImage without publishing. Download the DMG and check its mounted app:
+A manual Release workflow run uploads the DMG, Arch package, `.deb`, AppImage and signed Android APK without publishing. Android requires its [signing secrets](../android/README.md#release-workflow-signing); pull requests build only a debug APK. Download the DMG and check its mounted app:
 
 ```sh
 codesign --verify --strict '/Volumes/Spent Day/Spent Day.app'
