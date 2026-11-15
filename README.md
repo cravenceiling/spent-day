@@ -62,7 +62,7 @@ To sync, run [`spentday-server`](server/README.md) behind HTTPS, create a sync c
 
 ## Android and browser extension
 
-[Android 8 or later](apps/android/README.md) needs JDK 21, the Android SDK and NDK. The [browser extension](extension/README.md) reports sites for Firefox on macOS and browsers on Linux. There's no Windows app yet. Apple does not let iOS apps export Screen Time data.
+[Android 8 or later](apps/android/README.md) has a signed APK in Releases. Building from source needs JDK 21, the Android SDK and NDK. The [browser extension](extension/README.md) reports sites for Firefox on macOS and browsers on Linux. There's no Windows app yet. Apple does not let iOS apps export Screen Time data.
 
 ## Releases
 
@@ -74,6 +74,7 @@ Download from [Releases](https://github.com/cravenceiling/spent-day/releases):
 | Debian 13 / Ubuntu 24.04+, x86_64 | `spentday_<version>-1_amd64.deb` | `sudo apt install ./spentday_<version>-1_amd64.deb` |
 | Linux, x86_64, glibc 2.35+ | `SpentDay-<version>-x86_64.AppImage` | `chmod +x SpentDay-*.AppImage`, then `./SpentDay-<version>-x86_64.AppImage` |
 | Arch Linux, x86_64 | `spentday-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U ./spentday-<version>-1-x86_64.pkg.tar.zst` |
+| Android 8+, arm64 or x86_64 | `SpentDay-<version>.apk` | `adb install -r SpentDay-<version>.apk`, or open it on your phone and allow installing from the browser. |
 
 The macOS app is not notarized. After each download, allow the blocked launch in System Settings > Privacy & Security > Open Anyway.
 
@@ -85,9 +86,10 @@ For manual installs, open Spent Day and turn on Settings > Launch at login. The 
 
 On GNOME 45+ Wayland, run `gnome-extensions enable spentday@spent.day`, then log out and back in. If GNOME does not see the new extension, log out and back in before enabling it too. On Plasma 6 Wayland, run `kwriteconfig6 --file kwinrc --group Plugins --key spentday-focusEnabled true`, then log out and back in. AppImage users must first run `./SpentDay-<version>-x86_64.AppImage --install-helpers` from that session. Debian and Arch packages ship the helpers system-wide. The one-command installer enables those packaged copies and uses `--install-helpers` only for AppImage installs. After helper updates, log out and back in to reload them.
 
-To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. The release workflow checks the versions, builds all four downloads on standard GitHub-hosted runners, and publishes them using the built-in token. These runners are free for this public repository. No paid developer account or external service registration is needed. Pull requests that change release files and manual workflow runs upload all four downloads as workflow artifacts without publishing a release.
+To cut a release, set the same version in `apps/desktop/macos/Info.plist`, `apps/desktop/Cargo.toml`, and `packaging/arch/PKGBUILD`, then push a matching tag, such as `git tag v0.1.0 && git push origin v0.1.0`. Use `major.minor.patch` with minor and patch below 100. The release workflow checks the versions, builds all five downloads on standard GitHub-hosted runners, and publishes them using the built-in token. Android uses that version and derives an increasing version code. These runners are free for this public repository. No paid developer account or external service registration is needed. Manual workflow runs upload all five downloads as workflow artifacts without publishing a release. Pull requests that change release files upload the four desktop downloads and build and test a debug APK without the release key.
 
 Set up the [release signing secrets](apps/desktop/README.md#release-signing) once so macOS Automation grants survive updates.
+Android builds require the [Android signing secrets](apps/android/README.md#release-workflow-signing). Keep the same key for every release so installed apps can update.
 
 ## Docs
 

@@ -29,8 +29,11 @@ android {
         applicationId = "day.spent.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.gradleProperty("spentdayVersionCode").orElse("1").get().let {
+            it.toIntOrNull()?.takeIf { code -> code > 0 }
+                ?: throw GradleException("spentdayVersionCode must be a positive integer, got '$it'")
+        }
+        versionName = providers.gradleProperty("spentdayVersionName").orElse("0.1.0").get()
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 

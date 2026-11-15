@@ -11,7 +11,9 @@ export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_HOME:?set ANDROID_HOME}/n
 
 cd "$root"
 cargo ndk -t arm64-v8a -t x86_64 -o "$jni_libs" build -p spentday-core --release
-cargo build -p spentday-core --release
+# uniffi-bindgen reads its metadata from the symbol table, which the release profile's full
+# strip removes from a Linux .so. The macOS dylib keeps it in the export trie.
+CARGO_PROFILE_RELEASE_STRIP=debuginfo cargo build -p spentday-core --release
 
 host_lib="$root/target/release/libspentday_core.dylib"
 [[ -f "$host_lib" ]] || host_lib="$root/target/release/libspentday_core.so"

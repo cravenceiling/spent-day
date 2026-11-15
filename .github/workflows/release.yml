@@ -9,6 +9,7 @@ on:
       - 'packaging/**'
       - 'scripts/make-release-cert.sh'
       - 'apps/desktop/**'
+      - 'apps/android/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'core/**'
@@ -23,6 +24,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      android_version_code: ${{ steps.version.outputs.android_version_code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,8 +48,16 @@ jobs:
               raise SystemExit(f"Version mismatch: macOS={macos}, desktop={desktop}, PKGBUILD={arch}")
           if os.environ["GITHUB_REF_TYPE"] == "tag" and os.environ["GITHUB_REF_NAME"] != f"v{macos}":
               raise SystemExit(f"Tag {os.environ['GITHUB_REF_NAME']} must be v{macos}, matching Info.plist and apps/desktop/Cargo.toml")
+          # Android refuses an update whose versionCode does not increase.
+          if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)", macos):
+              raise SystemExit(f"Version {macos!r} must be major.minor.patch with minor and patch below 100")
+          major, minor, patch = map(int, macos.split("."))
+          android_code = major * 10000 + minor * 100 + patch
+          if not 1 <= android_code <= 2100000000:
+              raise SystemExit(f"Version {macos} gives Android versionCode {android_code}, outside 1 to 2100000000")
           with open(os.environ["GITHUB_OUTPUT"], "a") as file:
               file.write(f"version={macos}\n")
+              file.write(f"android_version_code={android_code}\n")
 
   macos:
     needs: version
@@ -136,6 +146,89 @@ jobs:
         with:
           name: macos-arm64
           path: dist/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ANDROID_VERSION_CODE: ${{ needs.version.outputs.android_version_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: android-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: android-cargo-
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          rustup toolchain install stable --profile minimal --target aarch64-linux-android,x86_64-linux-android
+          rustup default stable
+          cargo install cargo-ndk --version 4.1.2 --locked
+      # Pull requests exercise the toolchain without the release key, so a broken build shows up
+      # before a tag does.
+      - name: Test and build debug APK
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: cd apps/android && ./gradlew testDebugUnitTest assembleDebug
+      - name: Import release keystore
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SPENTDAY_KEYSTORE_PASSWORD: ${{ secrets.SPENTDAY_KEYSTORE_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$SPENTDAY_KEYSTORE_PASSWORD" ]; then
+            echo '::error::Android releases require ANDROID_KEYSTORE_BASE64 and SPENTDAY_KEYSTORE_PASSWORD. See apps/android/README.md.'
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/spentday-release.jks"
+          chmod 600 "$RUNNER_TEMP/spentday-release.jks"
+          echo "SPENTDAY_KEYSTORE=$RUNNER_TEMP/spentday-release.jks" >> "$GITHUB_ENV"
+      - name: Test and build release APK
+        if: github.event_name != 'pull_request'
+        env:
+          SPENTDAY_KEYSTORE_PASSWORD: ${{ secrets.SPENTDAY_KEYSTORE_PASSWORD }}
+          SPENTDAY_KEY_ALIAS: ${{ secrets.SPENTDAY_KEY_ALIAS }}
+          SPENTDAY_KEY_PASSWORD: ${{ secrets.SPENTDAY_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          # Empty secrets must not replace Gradle's signing defaults.
+          [ -n "$SPENTDAY_KEY_ALIAS" ] || unset SPENTDAY_KEY_ALIAS
+          [ -n "$SPENTDAY_KEY_PASSWORD" ] || unset SPENTDAY_KEY_PASSWORD
+          cd apps/android
+          ./gradlew testDebugUnitTest assembleRelease \
+            -PspentdayVersionName="$VERSION" -PspentdayVersionCode="$ANDROID_VERSION_CODE"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/app-release.apk "../../dist/SpentDay-$VERSION.apk"
+      - name: Remove release keystore
+        if: always()
+        timeout-minutes: 2
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/spentday-release.jks"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name != 'pull_request'
+        with:
+          name: android
+          path: dist/*.apk
           if-no-files-found: error
           compression-level: 0
 
@@ -244,7 +337,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, arch, deb, appimage]
+    needs: [macos, android, arch, deb, appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -259,10 +352,10 @@ jobs:
       - name: Prepare installer and checksums
         run: |
           cp packaging/install.sh apps/desktop/linux/data/icons/day.spent.SpentDay.svg dist/
-          (cd dist && sha256sum ./*.dmg ./*.pkg.tar.zst ./*.deb ./*.AppImage install.sh day.spent.SpentDay.svg | sed 's|  ./|  |' > SHA256SUMS)
+          (cd dist && sha256sum ./*.dmg ./*.apk ./*.pkg.tar.zst ./*.deb ./*.AppImage install.sh day.spent.SpentDay.svg | sed 's|  ./|  |' > SHA256SUMS)
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/*.dmg dist/*.pkg.tar.zst dist/*.deb dist/*.AppImage dist/install.sh dist/day.spent.SpentDay.svg dist/SHA256SUMS --verify-tag --title "$TAG" --generate-notes
+        run: gh release create "$TAG" dist/*.dmg dist/*.apk dist/*.pkg.tar.zst dist/*.deb dist/*.AppImage dist/install.sh dist/day.spent.SpentDay.svg dist/SHA256SUMS --verify-tag --title "$TAG" --generate-notes
