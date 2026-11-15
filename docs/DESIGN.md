@@ -9,7 +9,7 @@ Spent Day records which app (and which website) is in front of you on every devi
 | `core/` | Rust crate `spentday-core`. Storage, span building, web attribution, summaries, sync client, crypto. Linked directly by the Rust desktop app; exposed to Kotlin through UniFFI. |
 | `server/` | Rust crate `spentday-server`. Dumb append-only store of encrypted batches. Self-hostable binary. |
 | `cli/` | Rust crate `spentday-cli`. Reads a Spent Day database and prints summaries as JSON. Used by every verification script. |
-| `apps/desktop/` | One Rust desktop app on Rune. macOS menu bar and Linux dashboard, with separate platform collectors. |
+| `apps/desktop/` | One Rust desktop app on Rune. macOS menu bar, Linux system tray and a shared dashboard, with separate platform collectors. |
 | `apps/android/` | Kotlin + Jetpack Compose app. |
 | `extension/` | WebExtension (Chrome, Firefox) that reports the active tab to the desktop app on `127.0.0.1:7853`. |
 

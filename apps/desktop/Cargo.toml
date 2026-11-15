@@ -47,6 +47,7 @@ libc = "0.2"
 wgpu = { version = "~30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "wgsl", "vulkan", "dx12"] }
 pollster = "1"
 zbus = "5"
+ksni = { version = "0.3.7", default-features = false, features = ["blocking", "async-io"] }
 x11rb = { version = "0.13", features = ["screensaver"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }

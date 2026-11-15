@@ -8,6 +8,7 @@ mod media;
 mod paths;
 mod session;
 mod tracker;
+mod tray;
 
 use super::{OnFatal, Pref};
 pub use autostart::{autostart, set_autostart};
@@ -16,6 +17,7 @@ pub use paths::db_path;
 use spentday_core::SpentDay;
 use std::path::PathBuf;
 use std::sync::Arc;
+pub use tray::{TrayCallbacks, tray};
 
 pub const PLATFORM: spentday_core::Platform = spentday_core::Platform::Linux;
 pub const DEVICE_NOUN: &str = "computer";
