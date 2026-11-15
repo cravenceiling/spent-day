@@ -370,8 +370,8 @@ cat /tmp/install/calls
 cmp /tmp/install/home/.local/bin/spentday "$spentday" || fail "install.sh did not install from CARGO_TARGET_DIR"
 grep -qx 'ExecStart="/tmp/install/home/.local/bin/spentday" --background' /tmp/install/home/.config/systemd/user/spentday.service \
   || fail "ExecStart"
-grep -qx 'RestartPreventExitStatus=3' /tmp/install/home/.config/systemd/user/spentday.service \
-  || fail "the service restarts after a fatal window the user closed"
+grep -qx 'RestartPreventExitStatus=3 4' /tmp/install/home/.config/systemd/user/spentday.service \
+  || fail "the service restarts after a fatal window the user closed (3) or without Vulkan (4)"
 [ "$(grep -cx 'systemctl --user restart spentday.service' /tmp/install/calls)" = 2 ] || fail "reruns restart the service"
 grep -q -- '--now' /tmp/install/calls && fail "install.sh still uses enable --now"
 [ -z "$(ls -A /tmp/install/tmp)" ] || fail "install.sh left temporary files"
