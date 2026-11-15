@@ -46,9 +46,13 @@ pub fn tray(demo: bool, callbacks: TrayCallbacks) {
     }
 }
 
+// GTK-based hosts (Waybar before 0.16, GNOME's AppIndicator) search IconThemePath as a theme
+// only when it holds an index.theme, so they find just the top-level file. KDE and newer Waybar
+// look in hicolor/ first.
 fn write_icon(dir: &Path) -> std::io::Result<()> {
     let apps = dir.join("hicolor/scalable/apps");
     std::fs::create_dir_all(&apps)?;
+    std::fs::write(dir.join("spentday-symbolic.svg"), ICON)?;
     std::fs::write(apps.join("spentday-symbolic.svg"), ICON)
 }
 
@@ -139,6 +143,8 @@ mod tests {
         let svg = icons.join("hicolor/scalable/apps/spentday-symbolic.svg");
         write_icon(&icons).unwrap();
         assert_eq!(std::fs::read_to_string(&svg).unwrap(), ICON);
+        let flat = icons.join("spentday-symbolic.svg");
+        assert_eq!(std::fs::read_to_string(flat).unwrap(), ICON);
         std::fs::write(&svg, "old icon").unwrap();
         write_icon(&icons).unwrap();
         assert_eq!(std::fs::read_to_string(svg).unwrap(), ICON);

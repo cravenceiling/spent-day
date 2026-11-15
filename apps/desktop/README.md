@@ -170,7 +170,7 @@ The extension listener binds only `127.0.0.1:7853`. It receives origins, never p
 
 The system tray uses StatusNotifierItem and dbusmenu. It appears in Waybar's `tray` module on Omarchy and other Hyprland setups, and in KDE Plasma's system tray. GNOME needs the AppIndicator extension, which Ubuntu ships. The symbolic hourglass follows Waybar's foreground colour.
 
-Without a tray host, Spent Day logs a line each time the host goes away and keeps tracking. The icon registers when a host starts or restarts, including Waybar. Use `spentday --dashboard` to open a background instance without a tray host. The app writes its embedded icon on every start under `$XDG_RUNTIME_DIR/spentday/icons/hicolor/scalable/apps/spentday-symbolic.svg`. Without `XDG_RUNTIME_DIR`, it uses an `icons` folder beside the database.
+Without a tray host, Spent Day logs a line each time the host goes away and keeps tracking. The icon registers when a host starts or restarts, including Waybar. Use `spentday --dashboard` to open a background instance without a tray host. The app writes its embedded icon on every start to `$XDG_RUNTIME_DIR/spentday/icons/spentday-symbolic.svg` and to `hicolor/scalable/apps/` below that folder. GTK hosts such as Waybar before 0.16 find only the first; KDE and newer Waybar look in `hicolor` first. Without `XDG_RUNTIME_DIR`, it uses an `icons` folder beside the database.
 
 | Session | App in front | Idle source |
 |---|---|---|
