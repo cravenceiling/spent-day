@@ -315,6 +315,7 @@ pub fn run(opts: Opts) -> ExitCode {
         #[cfg(target_os = "linux")]
         {
             let (settings, quit) = (dash.clone(), dash.clone());
+            let (today, sync_state, sync_now) = (shared.clone(), shared.clone(), shared.clone());
             platform::tray(
                 demo,
                 platform::TrayCallbacks {
@@ -336,7 +337,17 @@ pub fn run(opts: Opts) -> ExitCode {
                             }
                         });
                     }),
-                    settings_available: Box::new(|| !FAILED.load(Ordering::Acquire)),
+                    failed: Box::new(|| FAILED.load(Ordering::Acquire)),
+                    today: Box::new(move || {
+                        let date = if today.demo {
+                            jiff::civil::date(2026, 10, 28)
+                        } else {
+                            day::today(&today.tz)
+                        };
+                        panel::summary(&today, date)
+                    }),
+                    sync_state: Box::new(move || sync_state.sync.lock().unwrap().view()),
+                    sync: Box::new(move || sync::run(&sync_now, Trigger::Manual)),
                     quit: Box::new(move || quit.quit()),
                 },
             );
@@ -345,7 +356,7 @@ pub fn run(opts: Opts) -> ExitCode {
 
     #[cfg(target_os = "macos")]
     let panel_options = platform::status_item::panel_options(panel::SIZE);
-    // The Linux tray opens the dashboard; the panel exists for headless scenes only.
+    // Wayland cannot position this Rune window under the bar, so Linux uses dbusmenu.
     #[cfg(target_os = "linux")]
     let panel_options = rune::WindowOptions {
         visible: false,

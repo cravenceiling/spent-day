@@ -53,7 +53,7 @@ step "integration tests against the session bus and the X server"
 # They share one session bus, so one test's players must not show up in another's checks.
 (cd "$here/.." && cargo test --quiet --locked -- --ignored --test-threads=1) || fail "integration tests"
 
-step "system tray: background launch exports its symbolic icon and quits through dbusmenu"
+step "system tray: Today menu opens the dashboard and quits through dbusmenu"
 install -d -m 700 /tmp/tray-runtime
 XDG_RUNTIME_DIR=/tmp/tray-runtime "$spentday" --demo --background >/tmp/tray.log 2>&1 &
 tray_pid=$!
@@ -76,16 +76,32 @@ echo "$tray_name: $icon_name $icon_path"
 [ "$icon_path" = "(<'/tmp/tray-runtime/spentday/icons'>,)" ] || fail "wrong tray IconThemePath"
 [ -s /tmp/tray-runtime/spentday/icons/hicolor/scalable/apps/spentday-symbolic.svg ] || fail "missing symbolic icon"
 [ "$(tray_property Id)" = "(<'day.spent.SpentDay.Demo'>,)" ] || fail "wrong demo tray id"
-gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
-  --method org.kde.StatusNotifierItem.Activate 0 0
-tray_window=$(timeout 15 xdotool search --sync --onlyvisible --pid "$tray_pid" | head -1) || fail "tray Activate did not open the dashboard"
-gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
-  --method org.kde.StatusNotifierItem.Activate 0 0
-sleep 1
-[ "$(xdotool search --onlyvisible --pid "$tray_pid")" = "$tray_window" ] || fail "repeated tray Activate closed or replaced the dashboard"
+[ "$(tray_property ItemIsMenu)" = "(<true>,)" ] || fail "tray ItemIsMenu is not true"
+# GNOME AppIndicator and Plasma before 6.4 open the menu only when Activate is unknown.
+if gdbus call --session --dest "$tray_name" --object-path /StatusNotifierItem \
+  --method org.kde.StatusNotifierItem.Activate 0 0 2>/dev/null; then
+  fail "tray Activate should fail while ItemIsMenu is true"
+fi
+gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.AboutToShow 0 || { cat /tmp/tray.log; fail "tray AboutToShow"; }
+layout=$(gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.GetLayout -- 0 -1 '[]') || { cat /tmp/tray.log; fail "tray GetLayout"; }
+echo "$layout"
+for label in 'Today  13h 50m' 'Xcode  6h 5m' 'Instagram  1h 35m' 'YouTube  1h 20m'; do
+  printf '%s\n' "$layout" | grep -qF "$label" || fail "missing tray row $label"
+done
 menu=$(gdbus call --session --dest "$tray_name" --object-path /MenuBar \
-  --method com.canonical.dbusmenu.GetGroupProperties '[]' "['label']")
+  --method com.canonical.dbusmenu.GetGroupProperties '[]' "['label']") || fail "tray GetGroupProperties"
 echo "$menu"
+open_item=$(printf '%s\n' "$menu" | sed -n "s/.*(\([0-9][0-9]*\), {'label': <'Open Dashboard'>}).*/\1/p")
+[ -n "$open_item" ] || fail "no Open Dashboard menu item"
+gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.Event "$open_item" clicked '<0>' 0 || fail "tray Open Dashboard click"
+tray_window=$(timeout 15 xdotool search --sync --onlyvisible --pid "$tray_pid" | head -1) || fail "Open Dashboard menu item did not open the dashboard"
+gdbus call --session --dest "$tray_name" --object-path /MenuBar \
+  --method com.canonical.dbusmenu.Event "$open_item" clicked '<0>' 0 || fail "second tray Open Dashboard click"
+sleep 1
+[ "$(xdotool search --onlyvisible --pid "$tray_pid")" = "$tray_window" ] || fail "a second Open Dashboard closed or replaced the dashboard"
 quit_item=$(printf '%s\n' "$menu" | sed -n "s/.*(\([0-9][0-9]*\), {'label': <'Quit Spent Day'>}).*/\1/p")
 [ -n "$quit_item" ] || fail "no Quit Spent Day menu item"
 gdbus call --session --dest "$tray_name" --object-path /MenuBar \

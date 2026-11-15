@@ -6,10 +6,36 @@ use crate::platform;
 use crate::sync::{self, SyncView, Trigger};
 use crate::ui::{bg, font, kit, settings};
 use rune::{Color, Cx, El, ImageCache, Key, KeyEvent, Tx, col, el, row, text};
-use spentday_core::SummaryQuery;
+use spentday_core::{AppUsage, DayDetail, SummaryQuery};
 use std::sync::Arc;
 
 pub const SIZE: (f32, f32) = (264.0, 350.0);
+
+pub struct TodaySummary {
+    pub detail: DayDetail,
+    pub apps: Vec<AppUsage>,
+}
+
+pub fn summary(shared: &Shared, date: jiff::civil::Date) -> Result<TodaySummary, String> {
+    let q = crate::day::query(date, &shared.tz);
+    let detail = shared
+        .store
+        .day(q.clone())
+        .map_err(|e| crate::format::error("load today's total", &e))?;
+    let summary = shared
+        .store
+        .summary(SummaryQuery {
+            start_ms: q.start_ms,
+            end_ms: q.end_ms,
+            bucket_ms: 3_600_000,
+            device_id: None,
+        })
+        .map_err(|e| crate::format::error("load today's apps", &e))?;
+    Ok(TodaySummary {
+        detail,
+        apps: summary.apps.into_iter().take(3).collect(),
+    })
+}
 
 pub struct Panel {
     pub shared: Arc<Shared>,
@@ -59,25 +85,11 @@ impl Panel {
         crate::jobs::spawn(
             to,
             move || {
-                let q = crate::day::query(crate::day::today(&shared.tz), &shared.tz);
-                let detail = shared
-                    .store
-                    .day(q.clone())
-                    .map_err(|e| crate::format::error("load today's total", &e))?;
-                let palette = Palette::build(&detail, &shared.icons, shared.demo, || {});
-                let summary = shared
-                    .store
-                    .summary(SummaryQuery {
-                        start_ms: q.start_ms,
-                        end_ms: q.end_ms,
-                        bucket_ms: 3_600_000,
-                        device_id: None,
-                    })
-                    .map_err(|e| crate::format::error("load today's apps", &e))?;
+                let summary = summary(&shared, crate::day::today(&shared.tz))?;
+                let palette = Palette::build(&summary.detail, &shared.icons, shared.demo, || {});
                 let rows = summary
                     .apps
                     .into_iter()
-                    .take(3)
                     .map(|app| {
                         let icon = platform::icon_path(&app.app_key, &app.app_ids)
                             .map(|path| images.app_icon(path, 18.0));
@@ -89,7 +101,7 @@ impl Panel {
                         }
                     })
                     .collect();
-                Ok::<_, String>((detail.wall_ms, rows, palette))
+                Ok::<_, String>((summary.detail.wall_ms, rows, palette))
             },
             move |p, result, _| {
                 if generation != p.generation {
@@ -310,6 +322,30 @@ mod tests {
     use crate::{demo::Demo, icons};
     use rune::{Env, Runtime};
     use std::sync::{Mutex, OnceLock};
+
+    #[test]
+    fn demo_summary_uses_wall_time_and_three_ranked_apps() {
+        let tz = jiff::tz::TimeZone::UTC;
+        let shared = Shared {
+            store: Arc::new(Demo::with_timezone(tz.clone())),
+            demo: true,
+            tz,
+            icons: icons::Seeds::default(),
+            sync: Mutex::default(),
+            ui: OnceLock::new(),
+        };
+        let summary = summary(&shared, jiff::civil::date(2026, 10, 28)).unwrap();
+        assert_eq!(summary.detail.wall_ms, 49_800_000);
+        assert_eq!(summary.detail.device_ms, 51_300_000);
+        assert_eq!(
+            summary
+                .apps
+                .iter()
+                .map(|app| app.app_name.as_str())
+                .collect::<Vec<_>>(),
+            ["Xcode", "Instagram", "YouTube"]
+        );
+    }
 
     #[test]
     fn app_rows_align_tracks_and_duration_text_in_both_themes() {
